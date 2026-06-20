@@ -708,7 +708,6 @@ Type=simple
 User=${service_user}
 ${supplementary_groups_line}
 AmbientCapabilities=CAP_SYS_TTY_CONFIG
-CapabilityBoundingSet=CAP_SYS_TTY_CONFIG
 RuntimeDirectory=240mp
 RuntimeDirectoryMode=0700
 Environment=HOME=${service_home}
