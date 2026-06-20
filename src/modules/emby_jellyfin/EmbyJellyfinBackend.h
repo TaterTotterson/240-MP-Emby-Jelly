@@ -108,6 +108,27 @@ private:
     QUrl apiUrl(const QString &path) const;
     QUrl itemListUrl(const QString &parentId, const QString &includeTypes,
                      bool recursive = true) const;
+    void requestPlaybackInfo(const QString &ratingKey, const QString &partKey,
+                             const QString &sessionId, const QString &audioId,
+                             const QString &subtitleId, int offsetMs,
+                             bool forceTranscode);
+    QJsonObject playbackDeviceProfile(bool forceTranscode) const;
+    QJsonObject playbackInfoPayload(const QString &partKey,
+                                    const QString &audioId,
+                                    const QString &subtitleId,
+                                    int offsetMs,
+                                    bool forceTranscode) const;
+    QString playbackUrlFromInfo(const QJsonObject &info,
+                                const QString &ratingKey,
+                                const QString &partKey,
+                                const QString &sessionId,
+                                const QString &audioId,
+                                const QString &subtitleId,
+                                bool forceTranscode,
+                                QJsonObject *selectedSource) const;
+    QString absoluteMediaUrl(const QString &pathOrUrl) const;
+    QString withAccessToken(const QString &url) const;
+    QString httpHeaderFieldsFor(const QJsonObject &mediaSource) const;
     QString streamUrlFor(const QString &itemId, const QString &mediaSourceId,
                          const QString &playSessionId,
                          const QString &audioIndex = {},

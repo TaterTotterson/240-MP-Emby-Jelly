@@ -231,7 +231,14 @@ FocusScope {
 
     Connections {
         target: embyBackend
-        function onErrorOccurred(msg) { console.log("[Player] Backend error: " + msg) }
+        function onErrorOccurred(msg) {
+            console.log("[Player] Backend error: " + msg)
+            if (pendingRetryTranscode || pendingNextEpisode) {
+                pendingRetryTranscode = false
+                pendingNextEpisode = false
+                goBack()
+            }
+        }
         function onStreamUrlReady(url, httpHeaderFields) {
             if (pendingNextEpisode) {
                 // Stream URL for the auto-advanced next episode just arrived.
@@ -320,8 +327,7 @@ FocusScope {
             embyBackend.set_subtitle_stream(subId, partId)
         }
 
-        // Both paths resolve through onStreamUrlReady, which checks this flag.
-        // build_stream_url emits synchronously, so the flag must be set first.
+        // Both paths resolve asynchronously through onStreamUrlReady, which checks this flag.
         pendingNextEpisode = true
         if (isTranscoding) {
             embyBackend.request_transcode(ratingKey, partKey, sessionId, audioId, subId, 0)

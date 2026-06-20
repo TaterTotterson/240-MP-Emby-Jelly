@@ -8,12 +8,56 @@
 #include <QJsonDocument>
 #include <QJsonValue>
 #include <QSet>
+#include <QStringList>
 #include <QSysInfo>
 #include <QUrlQuery>
 #include <QUuid>
 
 static const QString kModuleId = QStringLiteral("com.240mp.emby_jellyfin");
 static const QString kAuthFile = QStringLiteral("/emby_jellyfin_auth.json");
+
+namespace {
+struct PlaybackLimits {
+    int maxWidth = 854;
+    int maxHeight = 480;
+    int videoBitRate = 2000000;
+    int audioBitRate = 128000;
+    int maxStreamingBitrate = 2128000;
+};
+
+PlaybackLimits playbackLimitsFor(const QString &quality, bool forceTranscode) {
+    PlaybackLimits limits;
+    if (!forceTranscode) {
+        limits.maxWidth = 0;
+        limits.maxHeight = 0;
+        limits.videoBitRate = 0;
+        limits.maxStreamingBitrate = 100000000;
+        return limits;
+    }
+
+    if (quality == "1080p") {
+        limits.maxWidth = 1920;
+        limits.maxHeight = 1080;
+        limits.videoBitRate = 8000000;
+    } else if (quality == "720p") {
+        limits.maxWidth = 1280;
+        limits.maxHeight = 720;
+        limits.videoBitRate = 4000000;
+    }
+    limits.maxStreamingBitrate = limits.videoBitRate + limits.audioBitRate;
+    return limits;
+}
+
+int streamIndexFromId(const QString &streamId, int fallback = -1) {
+    bool ok = false;
+    const int value = streamId.toInt(&ok);
+    return ok ? value : fallback;
+}
+
+QString abbreviatedNetworkBody(const QByteArray &body) {
+    return QString::fromUtf8(body.left(240)).simplified();
+}
+}
 
 EmbyJellyfinBackend::EmbyJellyfinBackend(const QString &appRoot,
                                          const QString &dataRoot,
@@ -558,6 +602,181 @@ QString EmbyJellyfinBackend::subtitleUrlFor(const QString &itemId,
     return url.toString();
 }
 
+QString EmbyJellyfinBackend::absoluteMediaUrl(const QString &pathOrUrl) const {
+    const QString raw = pathOrUrl.trimmed();
+    if (raw.isEmpty()) return {};
+
+    if (raw.startsWith("//")) {
+        const QUrl base(serverUrl());
+        return base.scheme() + ":" + raw;
+    }
+
+    QUrl url(raw);
+    if (url.isRelative()) {
+        QUrl base(serverUrl() + "/");
+        url = base.resolved(url);
+    }
+    return url.toString();
+}
+
+QString EmbyJellyfinBackend::withAccessToken(const QString &rawUrl) const {
+    if (rawUrl.isEmpty() || accessToken().isEmpty()) return rawUrl;
+
+    QUrl url(rawUrl);
+    QUrlQuery q(url);
+    if (!q.hasQueryItem("api_key") &&
+        !q.hasQueryItem("ApiKey") &&
+        !q.hasQueryItem("X-Emby-Token") &&
+        !q.hasQueryItem("X-MediaBrowser-Token")) {
+        q.addQueryItem("api_key", accessToken());
+        url.setQuery(q);
+    }
+    return url.toString();
+}
+
+QString EmbyJellyfinBackend::httpHeaderFieldsFor(const QJsonObject &mediaSource) const {
+    QStringList fields;
+    const QJsonObject headers = mediaSource["RequiredHttpHeaders"].toObject();
+    for (auto it = headers.begin(); it != headers.end(); ++it) {
+        const QString value = it.value().toString();
+        if (!it.key().isEmpty() && !value.isEmpty())
+            fields << QString("%1: %2").arg(it.key(), value);
+    }
+    return fields.join(",");
+}
+
+QJsonObject EmbyJellyfinBackend::playbackDeviceProfile(bool forceTranscode) const {
+    const PlaybackLimits limits = playbackLimitsFor(videoQuality(), forceTranscode);
+
+    QJsonArray directPlayProfiles;
+    if (!forceTranscode) {
+        directPlayProfiles.append(QJsonObject{
+            {"Container", "mp4,m4v,mov,mkv,webm,ts,avi"},
+            {"Type", "Video"}
+        });
+    }
+
+    QJsonArray transcodingProfiles;
+    transcodingProfiles.append(QJsonObject{
+        {"Container", "ts"},
+        {"Type", "Video"},
+        {"VideoCodec", "h264"},
+        {"AudioCodec", "aac"},
+        {"Protocol", "hls"},
+        {"Context", "Streaming"},
+        {"MaxAudioChannels", "2"}
+    });
+
+    QJsonArray subtitleProfiles;
+    subtitleProfiles.append(QJsonObject{{"Format", "srt"}, {"Method", "External"}});
+    subtitleProfiles.append(QJsonObject{{"Format", "ass"}, {"Method", "External"}});
+    subtitleProfiles.append(QJsonObject{{"Format", "ssa"}, {"Method", "External"}});
+    subtitleProfiles.append(QJsonObject{{"Format", "vtt"}, {"Method", "External"}});
+    subtitleProfiles.append(QJsonObject{{"Format", "pgs"}, {"Method", "Encode"}});
+    subtitleProfiles.append(QJsonObject{{"Format", "dvdsub"}, {"Method", "Encode"}});
+    subtitleProfiles.append(QJsonObject{{"Format", "dvbsub"}, {"Method", "Encode"}});
+
+    return QJsonObject{
+        {"Name", "240-MP"},
+        {"MaxStreamingBitrate", limits.maxStreamingBitrate},
+        {"MaxStaticBitrate", 100000000},
+        {"DirectPlayProfiles", directPlayProfiles},
+        {"TranscodingProfiles", transcodingProfiles},
+        {"ContainerProfiles", QJsonArray{}},
+        {"CodecProfiles", QJsonArray{}},
+        {"ResponseProfiles", QJsonArray{}},
+        {"SubtitleProfiles", subtitleProfiles}
+    };
+}
+
+QJsonObject EmbyJellyfinBackend::playbackInfoPayload(const QString &partKey,
+                                                     const QString &audioId,
+                                                     const QString &subtitleId,
+                                                     int offsetMs,
+                                                     bool forceTranscode) const {
+    const PlaybackLimits limits = playbackLimitsFor(videoQuality(), forceTranscode);
+    QJsonObject body{
+        {"UserId", userId()},
+        {"StartTimeTicks", static_cast<double>(msToTicks(offsetMs))},
+        {"MaxAudioChannels", 2},
+        {"MaxStreamingBitrate", limits.maxStreamingBitrate},
+        {"AutoOpenLiveStream", true},
+        {"EnableDirectPlay", !forceTranscode},
+        {"EnableDirectStream", !forceTranscode},
+        {"EnableTranscoding", true},
+        {"AllowVideoStreamCopy", !forceTranscode},
+        {"AllowAudioStreamCopy", !forceTranscode},
+        {"DeviceProfile", playbackDeviceProfile(forceTranscode)}
+    };
+
+    if (!partKey.isEmpty())
+        body["MediaSourceId"] = partKey;
+
+    const int audioIndex = streamIndexFromId(audioId);
+    if (audioIndex >= 0)
+        body["AudioStreamIndex"] = audioIndex;
+
+    if (!subtitleId.isEmpty()) {
+        const int subtitleIndex = streamIndexFromId(subtitleId);
+        body["SubtitleStreamIndex"] = subtitleIndex >= 0 ? subtitleIndex : -1;
+        body["AlwaysBurnInSubtitleWhenTranscoding"] = forceTranscode && subtitleIndex >= 0;
+    }
+
+    if (forceTranscode) {
+        body["AudioBitRate"] = limits.audioBitRate;
+        body["VideoBitRate"] = limits.videoBitRate;
+        body["MaxWidth"] = limits.maxWidth;
+        body["MaxHeight"] = limits.maxHeight;
+    }
+
+    return body;
+}
+
+QString EmbyJellyfinBackend::playbackUrlFromInfo(const QJsonObject &info,
+                                                 const QString &ratingKey,
+                                                 const QString &partKey,
+                                                 const QString &sessionId,
+                                                 const QString &audioId,
+                                                 const QString &subtitleId,
+                                                 bool forceTranscode,
+                                                 QJsonObject *selectedSource) const {
+    const QJsonArray sources = info["MediaSources"].toArray();
+    if (sources.isEmpty()) return {};
+
+    QJsonObject mediaSource = sources.first().toObject();
+    for (const auto &sourceValue : sources) {
+        const QJsonObject source = sourceValue.toObject();
+        if (source["Id"].toString().compare(partKey, Qt::CaseInsensitive) == 0) {
+            mediaSource = source;
+            break;
+        }
+    }
+
+    if (selectedSource)
+        *selectedSource = mediaSource;
+
+    QString playSessionId = info["PlaySessionId"].toString();
+    if (playSessionId.isEmpty())
+        playSessionId = sessionId;
+
+    QString mediaSourceId = mediaSource["Id"].toString();
+    if (mediaSourceId.isEmpty())
+        mediaSourceId = partKey;
+
+    const QString transcodingUrl = mediaSource["TranscodingUrl"].toString();
+    const bool directPlay = mediaSource["SupportsDirectPlay"].toBool(false);
+    if (!transcodingUrl.isEmpty() && (forceTranscode || !directPlay))
+        return withAccessToken(absoluteMediaUrl(transcodingUrl));
+
+    if (forceTranscode) {
+        qWarning("[EmbyJellyfinBackend] PlaybackInfo did not include TranscodingUrl; using legacy HLS URL fallback");
+        return streamUrlFor(ratingKey, mediaSourceId, playSessionId,
+                            audioId, subtitleId, true);
+    }
+
+    return streamUrlFor(ratingKey, mediaSourceId, playSessionId);
+}
+
 QString EmbyJellyfinBackend::streamUrlFor(const QString &itemId,
                                           const QString &mediaSourceId,
                                           const QString &playSessionId,
@@ -730,7 +949,7 @@ void EmbyJellyfinBackend::load_item_detail(const QString &ratingKey) {
 void EmbyJellyfinBackend::build_stream_url(const QString &ratingKey,
                                            const QString &partKey,
                                            const QString &sessionId) {
-    emit streamUrlReady(streamUrlFor(ratingKey, partKey, sessionId), {});
+    requestPlaybackInfo(ratingKey, partKey, sessionId, {}, {}, 0, false);
 }
 
 void EmbyJellyfinBackend::request_transcode(const QString &ratingKey,
@@ -739,9 +958,72 @@ void EmbyJellyfinBackend::request_transcode(const QString &ratingKey,
                                             const QString &audioId,
                                             const QString &subtitleId,
                                             int offsetMs) {
-    Q_UNUSED(offsetMs)
-    emit streamUrlReady(streamUrlFor(ratingKey, partKey, sessionId,
-                                    audioId, subtitleId, true), {});
+    requestPlaybackInfo(ratingKey, partKey, sessionId,
+                        audioId, subtitleId, offsetMs, true);
+}
+
+void EmbyJellyfinBackend::requestPlaybackInfo(const QString &ratingKey,
+                                              const QString &partKey,
+                                              const QString &sessionId,
+                                              const QString &audioId,
+                                              const QString &subtitleId,
+                                              int offsetMs,
+                                              bool forceTranscode) {
+    if (ratingKey.isEmpty()) {
+        emit errorOccurred("PLAYBACK INFO FAILED: EMPTY ITEM ID");
+        return;
+    }
+
+    QJsonObject payload = playbackInfoPayload(partKey, audioId, subtitleId,
+                                              offsetMs, forceTranscode);
+    auto *reply = apiPostJson(apiUrl("/Items/" + ratingKey + "/PlaybackInfo"),
+                              QJsonDocument(payload).toJson(QJsonDocument::Compact));
+
+    connect(reply, &QNetworkReply::finished, this,
+            [this, reply, ratingKey, partKey, sessionId, audioId, subtitleId, forceTranscode]() {
+        reply->deleteLater();
+        const QByteArray bytes = reply->readAll();
+        if (reply->error() != QNetworkReply::NoError) {
+            QString message = "PLAYBACK INFO FAILED: " + reply->errorString();
+            const QString body = abbreviatedNetworkBody(bytes);
+            if (!body.isEmpty())
+                message += " - " + body;
+            emit errorOccurred(message);
+            return;
+        }
+
+        QJsonParseError parseError;
+        const QJsonDocument doc = QJsonDocument::fromJson(bytes, &parseError);
+        if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
+            emit errorOccurred("PLAYBACK INFO FAILED: INVALID SERVER RESPONSE");
+            return;
+        }
+
+        const QJsonObject info = doc.object();
+        const QString errorCode = info["ErrorCode"].toString();
+        if (!errorCode.isEmpty()) {
+            emit errorOccurred("PLAYBACK INFO FAILED: " + errorCode);
+            return;
+        }
+
+        QJsonObject mediaSource;
+        const QString url = playbackUrlFromInfo(info, ratingKey, partKey, sessionId,
+                                                audioId, subtitleId,
+                                                forceTranscode, &mediaSource);
+        if (url.isEmpty()) {
+            emit errorOccurred("PLAYBACK INFO FAILED: NO PLAYABLE STREAM");
+            return;
+        }
+
+        const QString method = mediaSource["TranscodingUrl"].toString().isEmpty()
+            ? QStringLiteral("direct")
+            : QStringLiteral("transcode");
+        qInfo("[EmbyJellyfinBackend] PlaybackInfo selected %s media source %s",
+              qPrintable(method),
+              qPrintable(mediaSource["Id"].toString(partKey)));
+
+        emit streamUrlReady(url, httpHeaderFieldsFor(mediaSource));
+    });
 }
 
 void EmbyJellyfinBackend::update_timeline(const QString &ratingKey,

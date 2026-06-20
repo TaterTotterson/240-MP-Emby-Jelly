@@ -241,6 +241,7 @@ void MpvController::loadAndPlay(const QString &url, float startSeconds,
                  << "--video-sync=audio";
             appendVideoArgs(args);
             args << "--no-input-terminal";
+            qDebug("[MpvController] headless launch: mpv %s", qPrintable(args.join(" ")));
             m_process->start(bin, args);
             m_connectTimer->start();
             return;
@@ -280,6 +281,7 @@ void MpvController::loadAndPlay(const QString &url, float startSeconds,
              << "--video-sync=audio";
         appendVideoArgs(args);
         args << "--no-input-terminal";
+        qDebug("[MpvController] headless launch: mpv %s", qPrintable(args.join(" ")));
         m_process->start(bin, args);
         m_connectTimer->start();
     } else {
@@ -403,7 +405,7 @@ void MpvController::onProcessFinished() {
     // Any other reason (quit/stop/error) or a missing end-file event (crash/kill)
     // is treated as a non-natural exit — the safe default that never auto-advances.
     const bool naturalEof = (m_lastEndFileReason == "eof");
-    const bool playbackError = (exitCode == 2);
+    const bool playbackError = (exitCode == 2 || m_lastEndFileReason == "error");
 
     if (m_headlessMode) {
         // Defer DRM restore and VT switch by 200 ms. mpv's last KMS atomic
