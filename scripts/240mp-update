@@ -6,12 +6,14 @@ MANIFEST_URL="${1:-${MP240_UPDATE_MANIFEST_URL:-$DEFAULT_MANIFEST_URL}}"
 INSTALL_PREFIX="${MP240_INSTALL_PREFIX:-/opt/240mp}"
 SERVICE_NAME="${MP240_SERVICE_NAME:-240mp.service}"
 UPDATE_FLAG="${MP240_UPDATE_FLAG:-/run/240mp-updating}"
-TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/240mp-update.XXXXXX")"
+TMP_DIR=""
 SERVICE_STOPPED=0
 
 cleanup() {
     local status=$?
-    rm -rf "$TMP_DIR"
+    if [ -n "$TMP_DIR" ]; then
+        rm -rf "$TMP_DIR"
+    fi
     rm -f "$UPDATE_FLAG"
 
     if [ "$SERVICE_STOPPED" = "1" ] && [ "$status" -ne 0 ]; then
@@ -38,11 +40,38 @@ require_cmd() {
     fi
 }
 
+run_in_transient_unit_if_needed() {
+    if [ "${MP240_UPDATE_TRANSIENT:-0}" = "1" ]; then
+        return
+    fi
+
+    if ! command -v systemd-run >/dev/null 2>&1; then
+        return
+    fi
+
+    local unit_name="240mp-update-$(date +%s)"
+    log "Starting transient updater unit: $unit_name"
+    systemd-run \
+        --unit="$unit_name" \
+        --collect \
+        --wait \
+        --setenv=MP240_UPDATE_TRANSIENT=1 \
+        --setenv=MP240_UPDATE_MANIFEST_URL="$MANIFEST_URL" \
+        --setenv=MP240_INSTALL_PREFIX="$INSTALL_PREFIX" \
+        --setenv=MP240_SERVICE_NAME="$SERVICE_NAME" \
+        --setenv=MP240_UPDATE_FLAG="$UPDATE_FLAG" \
+        "$0" "$MANIFEST_URL"
+    exit $?
+}
+
 require_root
 require_cmd curl
 require_cmd python3
 require_cmd tar
 require_cmd systemctl
+run_in_transient_unit_if_needed
+
+TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/240mp-update.XXXXXX")"
 
 log "Fetching manifest: $MANIFEST_URL"
 curl -fsSL "$MANIFEST_URL" -o "$TMP_DIR/manifest.json"
