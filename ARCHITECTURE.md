@@ -11,7 +11,7 @@ If you want to contribute, please start with [CONTRIBUTING.md](CONTRIBUTING.md).
 Think of 240-MP as a **browsing shell** that hands off to **purpose-built tools**.
 
 - The app shell handles browsing, auth, and settings
-- **Modules** are self-contained media integrations (Local Files, Emby/Jellyfin, Over The Air, Ambient Mode, etc...) that the shell discovers and loads at startup.
+- **Modules** are self-contained media integrations (Local Files, Emby/Jellyfin, Over The Air, etc...) that the shell discovers and loads at startup.
 - When a user picks something to play, the shell hands off to a dedicated fullscreen tool and resumes when that tool exits. For video, that tool is **mpv**, launched as a subprocess by `MpvController`. mpv is installed separately (`apt install mpv` / `brew install mpv`).  240-MP does not link against libmpv.
 
 The guiding idea: **browse structured content, then hand off to the right tool for the job** rather than bundling everything into one binary.
@@ -49,7 +49,7 @@ The guiding idea: **browse structured content, then hand off to the right tool f
   CMakeLists.txt
 ```
 
-There are four modules today: `local_files`, `emby_jellyfin`, `ota`, and `ambient_mode`. `emby_jellyfin` is a helpful reference when building something new as it covers a more complex use case (connecting to a local API with auth). The `ota` module is QML-only and reuses the existing Emby/Jellyfin backend for Live TV channel and playback calls.
+There are three modules today: `local_files`, `emby_jellyfin`, and `ota`. `emby_jellyfin` is a helpful reference when building something new as it covers a more complex use case (connecting to a local API with auth). The `ota` module is QML-only and reuses the existing Emby/Jellyfin backend for Live TV channel and playback calls.
 
 ## Anatomy of a Module
 
@@ -125,7 +125,7 @@ A real example (Emby/Jellyfin) — note `requires_auth` and dynamic options:
 
 `AppCore` (`src/AppCore.h/.cpp`) is the shell. It's exposed to all QML as the context property **`appCore`**.
 
-**Global context properties** (available in all QML): `appCore`, `mpvController`, plus one per module backend (`localFilesBackend`, `embyBackend`, `ambientModeBackend`, …). Backend names are assigned by the `registerModule` call in `main.cpp`.
+**Global context properties** (available in all QML): `appCore`, `mpvController`, plus one per module backend (`localFilesBackend`, `embyBackend`, …). Backend names are assigned by the `registerModule` call in `main.cpp`.
 
 ### Q_INVOKABLE slots used by QML
 
@@ -219,7 +219,7 @@ app constants →
 
 ### Custom OSC (Lua)
 
-The on-screen controls mpv shows during playback are custom Lua scripts in `scripts/` (`mpv-osc.lua` for normal playback, `ambient-osc.lua` for Ambient Mode), loaded via mpv's `--script=` flag. Options are passed in with `--script-opts=` (e.g. `transcode-offset=<sec>`). The remote's key events reach these scripts through the `keypress` IPC bridge described above.
+The on-screen controls mpv shows during playback are custom Lua scripts in `scripts/` (`mpv-osc.lua` for normal playback and `ota-osc.lua` for Over The Air), loaded via mpv's `--script=` flag. Options are passed in with `--script-opts=` (e.g. `transcode-offset=<sec>`). The remote's key events reach these scripts through the `keypress` IPC bridge described above.
 
 ### Raspberry Pi headless hand-off (EGLFS)
 
@@ -263,7 +263,7 @@ Please review `EmbyJellyfinBackend` as a reference implementation.
 - For dynamic settings dropdowns, emit `dynamicOptionsReady(key, [{id, label}])` — auto-connected; `AppCore` re-emits with the module ID prepended.
 - For auth-gated modules, emit `authStateChanged()` on sign-in/out — auto-connected and re-emitted as `moduleAuthStateChanged(moduleId)`.
 - To react to your own settings changing, add a slot `onSettingChanged(moduleId, key, value)` — auto-connected to `moduleSettingChanged`.
-- A backend resolves its own configured paths in its constructor — e.g. `LocalFilesBackend` / `AmbientModeBackend` read `media_directory` from `config.json` (defaulting to `dataRoot/media` / `dataRoot/ambient`). `main.cpp` does not touch module paths.
+- A backend resolves its own configured paths in its constructor — e.g. `LocalFilesBackend` reads `media_directory` from `config.json` (defaulting to `dataRoot/media`). `main.cpp` does not touch module paths.
 
 ## QML View Patterns
 

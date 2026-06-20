@@ -26,7 +26,6 @@ add_executable(240mp
     src/AppCore.cpp
     src/modules/local_files/LocalFilesBackend.cpp
     src/modules/emby_jellyfin/EmbyJellyfinBackend.cpp
-    src/modules/ambient_mode/AmbientModeBackend.cpp
     src/player/MpvController.cpp
     src/input/InputManager.cpp
     src/api/ControlApiServer.cpp

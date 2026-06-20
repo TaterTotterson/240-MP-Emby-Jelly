@@ -1,13 +1,13 @@
 {
-  "version": "2026.06.20.19",
+  "version": "2026.06.20.20",
   "channel": "main",
   "repo": "https://github.com/TaterTotterson/240-MP-Emby-Jelly",
   "manifest_url": "https://raw.githubusercontent.com/TaterTotterson/240-MP-Emby-Jelly/main/update-manifest.json",
-  "binary_archive": "https://github.com/TaterTotterson/240-MP-Emby-Jelly/releases/download/v2026.06.20.19/240-MP-v2026.06.20.19-linux-arm64.tar.gz",
-  "source_archive": "https://github.com/TaterTotterson/240-MP-Emby-Jelly/archive/refs/tags/v2026.06.20.19.tar.gz",
+  "binary_archive": "https://github.com/TaterTotterson/240-MP-Emby-Jelly/releases/download/v2026.06.20.20/240-MP-v2026.06.20.20-linux-arm64.tar.gz",
+  "source_archive": "https://github.com/TaterTotterson/240-MP-Emby-Jelly/archive/refs/tags/v2026.06.20.20.tar.gz",
   "notes": [
-    "Fixes packaged updater script permissions so built-in updates can restart cleanly.",
-    "Runs the transient updater through bash so updates survive script permission drift.",
-    "Keeps the Over The Air static channel surfing and lower CRT-friendly Live TV transcode behavior from 2026.06.20.18."
+    "Adds an Off Air highlight color selector with retro VCR-style color choices.",
+    "Removes the unused Ambient Mode module and backend.",
+    "Prunes stale app directories during updates so removed modules disappear from existing installs."
   ]
 }

@@ -75,11 +75,24 @@ Window {
     })
     property var allThemes: themes  // may gain a "Custom" entry on startup
     property string currentTheme: "Off Air"
+    readonly property var offAirHighlightColors: ({
+        "Orange": "#FF6A00",
+        "Cyan": "#00E5FF",
+        "Green": "#39FF14",
+        "Magenta": "#FF2BD6",
+        "Red": "#FF3030",
+        "Blue": "#3EA0FF",
+        "Amber": "#FFB000",
+        "White": "#FFFFFF"
+    })
+    property string offAirHighlightColor: "Orange"
     property string primaryColor:   (allThemes[currentTheme] || allThemes["Off Air"]).primary
     property string secondaryColor: (allThemes[currentTheme] || allThemes["Off Air"]).secondary
     property string tertiaryColor:  (allThemes[currentTheme] || allThemes["Off Air"]).tertiary
     property string surfaceColor:   (allThemes[currentTheme] || allThemes["Off Air"]).surface
-    property string accentColor:    (allThemes[currentTheme] || allThemes["Off Air"]).accent
+    property string accentColor:    currentTheme === "Off Air"
+        ? (offAirHighlightColors[offAirHighlightColor] || offAirHighlightColors["Orange"])
+        : (allThemes[currentTheme] || allThemes["Off Air"]).accent
     property bool staticBackgroundEnabled: !!((allThemes[currentTheme] || allThemes["Off Air"]).static)
 
     readonly property real sw: width
@@ -89,6 +102,7 @@ Window {
         target: appCore
         function onAppSettingChanged(key, value) {
             if (key === "color_scheme") root.currentTheme = value
+            if (key === "off_air_highlight_color") root.offAirHighlightColor = value
         }
     }
 
@@ -108,6 +122,13 @@ Window {
             savedTheme = "Off Air"
         }
         root.currentTheme = savedTheme
+
+        var savedOffAirHighlight = (cfg.app && cfg.app.off_air_highlight_color) || "Orange"
+        if (!root.offAirHighlightColors[savedOffAirHighlight]) {
+            appCore.save_setting("", "off_air_highlight_color", "Orange")
+            savedOffAirHighlight = "Orange"
+        }
+        root.offAirHighlightColor = savedOffAirHighlight
 
         // Break declarative bindings on macOS so the C++ NSWindow override
         // in forceWindowFullScreen() isn't immediately re-fought by QML.

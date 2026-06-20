@@ -147,6 +147,11 @@ SERVICE_STOPPED=1
 systemctl stop "$SERVICE_NAME" || true
 
 install -d -m 0755 "$INSTALL_PREFIX"
+rm -rf "$INSTALL_PREFIX/bin" \
+       "$INSTALL_PREFIX/share/240mp/views" \
+       "$INSTALL_PREFIX/share/240mp/modules" \
+       "$INSTALL_PREFIX/share/240mp/assets" \
+       "$INSTALL_PREFIX/share/240mp/scripts"
 cp -a "$TMP_DIR/install/." "$INSTALL_PREFIX/"
 install -d -m 0755 "$INSTALL_PREFIX/share/240mp"
 install -m 0644 "$TMP_DIR/manifest.json" "$INSTALL_PREFIX/share/240mp/update-manifest.json"

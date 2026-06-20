@@ -57,6 +57,16 @@ FocusScope {
             value: appSettings["color_scheme"] || "Off Air",
             moduleId: ""
         })
+        if ((appSettings["color_scheme"] || "Off Air") === "Off Air") {
+            items.push({
+                type: "list_single",
+                key: "off_air_highlight_color",
+                label: "Highlight Color",
+                options: ["Orange","Cyan","Green","Magenta","Red","Blue","Amber","White"],
+                value: appSettings["off_air_highlight_color"] || "Orange",
+                moduleId: ""
+            })
+        }
 
         // MODULES section — only show modules with has_settings
         var hasModuleSettings = false
@@ -133,6 +143,20 @@ FocusScope {
             available: !!result.available,
             enabled: !!result.enabled
         })
+    }
+
+    function setListSingleValue(rowIndex, row, newVal) {
+        var updated = settingsItems.slice()
+        updated[rowIndex] = Object.assign({}, row, { value: newVal })
+        var savedIndex = rowIndex
+        settingsItems = updated
+        settingsList.currentIndex = savedIndex
+        appCore.save_setting(row.moduleId, row.key, newVal)
+
+        if (row.moduleId === "" && row.key === "color_scheme") {
+            buildModel()
+            settingsList.currentIndex = 0
+        }
     }
 
     function firstSelectableAfter(idx) {
@@ -254,13 +278,7 @@ FocusScope {
                 var opts = row.options
                 var idx = opts.indexOf(row.value)
                 var newIdx = (idx - 1 + opts.length) % opts.length
-                var newVal = opts[newIdx]
-                var updated = settingsItems.slice()
-                updated[currentIndex] = Object.assign({}, row, { value: newVal })
-                var savedIndex = currentIndex
-                settingsItems = updated
-                currentIndex = savedIndex
-                appCore.save_setting(row.moduleId, row.key, newVal)
+                settingsRoot.setListSingleValue(currentIndex, row, opts[newIdx])
             } else if (row && row.type === "ssh_toggle") {
                 settingsRoot.setSshEnabled(currentIndex, false)
             }
@@ -272,13 +290,7 @@ FocusScope {
                 var opts = row.options
                 var idx = opts.indexOf(row.value)
                 var newIdx = (idx + 1) % opts.length
-                var newVal = opts[newIdx]
-                var updated = settingsItems.slice()
-                updated[currentIndex] = Object.assign({}, row, { value: newVal })
-                var savedIndex = currentIndex
-                settingsItems = updated
-                currentIndex = savedIndex
-                appCore.save_setting(row.moduleId, row.key, newVal)
+                settingsRoot.setListSingleValue(currentIndex, row, opts[newIdx])
             } else if (row && row.type === "ssh_toggle") {
                 settingsRoot.setSshEnabled(currentIndex, true)
             }

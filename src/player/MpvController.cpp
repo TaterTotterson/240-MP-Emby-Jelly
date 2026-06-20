@@ -149,8 +149,7 @@ void MpvController::loadAndPlay(const QString &url, float startSeconds,
         return;
     }
 
-    const QString oscScriptName = (oscMode == "ambient") ? "ambient-osc.lua"
-        : (oscMode == "ota") ? "ota-osc.lua"
+    const QString oscScriptName = (oscMode == "ota") ? "ota-osc.lua"
         : "mpv-osc.lua";
     const QString oscScript = m_appRoot + "/scripts/" + oscScriptName;
     const bool hasOscScript = QFile::exists(oscScript);

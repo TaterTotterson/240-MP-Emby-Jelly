@@ -197,7 +197,10 @@ QJsonObject AppCore::loadConfig() const {
     }
     // Return a sensible default if the file is missing or corrupt
     return QJsonObject{
-        {"app", QJsonObject{{"color_scheme","Off Air"}}},
+        {"app", QJsonObject{
+            {"color_scheme", "Off Air"},
+            {"off_air_highlight_color", "Orange"}
+        }},
         {"modules", QJsonObject{}}
     };
 }
