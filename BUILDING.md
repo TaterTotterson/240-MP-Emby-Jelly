@@ -220,6 +220,8 @@ Any bad lines are skipped with a warning in the log (line number included)
 
 If you find the need to tune for your hardware, you can add an `mpv_video_args` string under `"app"` in `config.json`.  It accepts a a space-separated list of mpv flags to replace the auto-detected `--vo` / `--hwdec` params that 240-MP sets.
 
+On custom audio setups, `mpv_audio_args` can be added beside it to override the auto-detected audio output flags. CRT/composite Pi images default to the analog `Headphones` ALSA card when it is present.
+
 ```json
 {
   "app": {

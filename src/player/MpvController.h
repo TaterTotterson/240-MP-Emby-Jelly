@@ -79,9 +79,11 @@ private:
     bool detectHeadlessMode() const;
     VideoProfile detectVideoProfile() const;
     bool hasCompositeDrmConnector() const;
+    bool hasPiHeadphonesAudioDevice() const;
     // Appends the profile-specific --vo/--gpu-context/--hwdec flags (honouring the
     // app-level "mpv_video_args" override) to a forming mpv argument list.
     void appendVideoArgs(QStringList &args) const;
+    void appendAudioArgs(QStringList &args) const;
     int  getActiveVt() const;
     int  findFreeVt() const;
     int  findQtDrmFd() const;

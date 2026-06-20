@@ -197,6 +197,8 @@ void MpvController::loadAndPlay(const QString &url, float startSeconds,
         args << QStringLiteral("--shuffle");
     if (muteAudio)
         args << QStringLiteral("--no-audio");
+    else
+        appendAudioArgs(args);
     if (!httpHeaderFields.isEmpty()) {
         args << QString("--http-header-fields=%1").arg(httpHeaderFields);
     }
@@ -508,6 +510,14 @@ bool MpvController::hasCompositeDrmConnector() const {
 #endif
 }
 
+bool MpvController::hasPiHeadphonesAudioDevice() const {
+#ifdef Q_OS_LINUX
+    return QFile::exists(QStringLiteral("/proc/asound/Headphones"));
+#else
+    return false;
+#endif
+}
+
 void MpvController::appendVideoArgs(QStringList &args) const {
     // App-level "mpv_video_args" override replaces the auto-detected vo/hwdec
     // flags verbatim. Read here (not cached) so edits to config.json take effect
@@ -554,6 +564,22 @@ void MpvController::appendVideoArgs(QStringList &args) const {
         args << "--hwdec=videotoolbox";
 #endif
         // Other desktop (X11/Wayland dev): leave mpv's defaults untouched.
+    }
+}
+
+void MpvController::appendAudioArgs(QStringList &args) const {
+    if (m_appCore) {
+        const QString override =
+            m_appCore->get_setting(QString(), "mpv_audio_args").toString().trimmed();
+        if (!override.isEmpty()) {
+            args << override.split(' ', Qt::SkipEmptyParts);
+            return;
+        }
+    }
+
+    if (m_headlessMode && hasCompositeDrmConnector() && hasPiHeadphonesAudioDevice()) {
+        args << QStringLiteral("--ao=alsa")
+             << QStringLiteral("--audio-device=alsa/sysdefault:CARD=Headphones");
     }
 }
 
