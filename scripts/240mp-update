@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+DEFAULT_MANIFEST_URL="https://raw.githubusercontent.com/TaterTotterson/240-MP-Emby-Jelly/main/update-manifest.json"
+MANIFEST_URL="${1:-${MP240_UPDATE_MANIFEST_URL:-$DEFAULT_MANIFEST_URL}}"
+INSTALL_PREFIX="${MP240_INSTALL_PREFIX:-/opt/240mp}"
+SERVICE_NAME="${MP240_SERVICE_NAME:-240mp.service}"
+UPDATE_FLAG="${MP240_UPDATE_FLAG:-/run/240mp-updating}"
+TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/240mp-update.XXXXXX")"
+SERVICE_STOPPED=0
+
+cleanup() {
+    local status=$?
+    rm -rf "$TMP_DIR"
+    rm -f "$UPDATE_FLAG"
+
+    if [ "$SERVICE_STOPPED" = "1" ] && [ "$status" -ne 0 ]; then
+        systemctl start "$SERVICE_NAME" >/dev/null 2>&1 || true
+    fi
+}
+trap cleanup EXIT
+
+log() {
+    printf '[240mp-update] %s\n' "$*"
+}
+
+require_root() {
+    if [ "$(id -u)" -ne 0 ]; then
+        log "This updater must run as root."
+        exit 1
+    fi
+}
+
+require_cmd() {
+    if ! command -v "$1" >/dev/null 2>&1; then
+        log "Missing required command: $1"
+        exit 1
+    fi
+}
+
+require_root
+require_cmd curl
+require_cmd python3
+require_cmd tar
+require_cmd cmake
+require_cmd systemctl
+
+log "Fetching manifest: $MANIFEST_URL"
+curl -fsSL "$MANIFEST_URL" -o "$TMP_DIR/manifest.json"
+
+mapfile -t manifest_values < <(python3 - "$TMP_DIR/manifest.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], "r", encoding="utf-8") as handle:
+    manifest = json.load(handle)
+
+repo = manifest.get("repo", "").rstrip("/")
+channel = manifest.get("channel", "main")
+source_archive = manifest.get("source_archive") or f"{repo}/archive/refs/heads/{channel}.tar.gz"
+
+print(manifest.get("version", ""))
+print(source_archive)
+print(repo)
+PY
+)
+
+VERSION="${manifest_values[0]:-}"
+SOURCE_ARCHIVE="${manifest_values[1]:-}"
+REPO_URL="${manifest_values[2]:-}"
+
+if [ -z "$VERSION" ] || [ -z "$SOURCE_ARCHIVE" ]; then
+    log "Manifest is missing version or source_archive."
+    exit 1
+fi
+
+log "Preparing version $VERSION from ${REPO_URL:-source archive}"
+curl -fsSL "$SOURCE_ARCHIVE" -o "$TMP_DIR/source.tar.gz"
+
+mkdir -p "$TMP_DIR/source"
+tar -xzf "$TMP_DIR/source.tar.gz" -C "$TMP_DIR/source" --strip-components=1
+
+log "Building update"
+cmake -S "$TMP_DIR/source" -B "$TMP_DIR/build" -DCMAKE_BUILD_TYPE=Release
+BUILD_JOBS="$(nproc 2>/dev/null || printf '2')"
+cmake --build "$TMP_DIR/build" --parallel "$BUILD_JOBS"
+
+log "Installing update"
+touch "$UPDATE_FLAG"
+SERVICE_STOPPED=1
+systemctl stop "$SERVICE_NAME" || true
+
+cmake --install "$TMP_DIR/build" --prefix "$INSTALL_PREFIX"
+install -d -m 0755 "$INSTALL_PREFIX/share/240mp"
+install -m 0644 "$TMP_DIR/manifest.json" "$INSTALL_PREFIX/share/240mp/update-manifest.json"
+
+systemctl daemon-reload || true
+systemctl start "$SERVICE_NAME"
+SERVICE_STOPPED=0
+rm -f "$UPDATE_FLAG"
+
+log "Updated 240-MP to $VERSION"

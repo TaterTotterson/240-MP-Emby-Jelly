@@ -19,7 +19,7 @@ FocusScope {
     property int focusRow: 0
 
     // True from when PLAY is pressed until we navigate to the Player (or error
-    // out). Plex can take a few seconds to hand back a stream/transcode URL, so
+    // out). Emby/Jellyfin can take a few seconds to hand back a stream/transcode URL, so
     // we show a LOADING overlay instead of leaving the screen looking frozen.
     property bool isLaunching: false
 
@@ -28,7 +28,7 @@ FocusScope {
     property int subtitleIdx: 0
 
     // Session ID for the current playback instance. Regenerated on every play
-    // (see Keys.onReturnPressed): reusing one lets Plex hand back a stale
+    // (see Keys.onReturnPressed): reusing one lets Emby/Jellyfin hand back a stale
     // transcode session built with the previously selected audio/subtitle.
     property string sessionId: newSessionId()
 
@@ -49,7 +49,7 @@ FocusScope {
     }
 
     Connections {
-        target: plexBackend
+        target: embyBackend
 
         function onItemLoaded(d) {
             detailRoot.detail = d
@@ -68,7 +68,7 @@ FocusScope {
             }
         }
 
-        function onStreamUrlReady(url, plexToken) {
+        function onStreamUrlReady(url, httpHeaderFields) {
             if (!detailRoot.detail) return
             var d = detailRoot.detail
             var audioId = d.audioStreams && d.audioStreams[detailRoot.audioIdx]
@@ -87,7 +87,7 @@ FocusScope {
 
             detailRoot.navigateTo("Player.qml", {
                 streamUrl: url,
-                plexToken: plexToken,
+                httpHeaderFields: httpHeaderFields,
                 ratingKey: d.ratingKey,
                 partKey: d.partKey,
                 partId: d.partId,
@@ -112,7 +112,7 @@ FocusScope {
     }
 
     Component.onCompleted: {
-        if (item.ratingKey) plexBackend.load_item_detail(item.ratingKey)
+        if (item.ratingKey) embyBackend.load_item_detail(item.ratingKey)
         focusRow = 0
     }
 
@@ -157,16 +157,16 @@ FocusScope {
             var subId = detail.subtitleStreams && detail.subtitleStreams[subtitleIdx]
                 ? detail.subtitleStreams[subtitleIdx].id : "0"
 
-            // Persist the picked tracks to Plex so they survive returning to
+            // Persist the picked tracks to Emby/Jellyfin so they survive returning to
             // this screen, and so a transcode burns the streams the user chose
             // (the server selects from its stored default, not just inline
             // params). subtitleStreamID "0" disables subtitles.
             if (detail.partId) {
-                if (audioId) plexBackend.set_audio_stream(audioId, detail.partId)
-                plexBackend.set_subtitle_stream(subId, detail.partId)
+                if (audioId) embyBackend.set_audio_stream(audioId, detail.partId)
+                embyBackend.set_subtitle_stream(subId, detail.partId)
             }
 
-            // Fresh session per play so Plex builds a new transcode for this
+            // Fresh session per play so Emby/Jellyfin builds a new transcode for this
             // exact selection instead of reusing the prior one.
             sessionId = newSessionId()
 
@@ -174,9 +174,9 @@ FocusScope {
                 // Always transcode from the start so the full timeline is seekable.
                 // The Player resumes by seeking mpv to viewOffset (see doStartPlayback),
                 // which lets the user rewind past the resume point.
-                plexBackend.request_transcode(detail.ratingKey, detail.partKey, sessionId, audioId, subId, 0)
+                embyBackend.request_transcode(detail.ratingKey, detail.partKey, sessionId, audioId, subId, 0)
             } else {
-                plexBackend.build_stream_url(detail.ratingKey, detail.partKey, sessionId)
+                embyBackend.build_stream_url(detail.ratingKey, detail.partKey, sessionId)
             }
         }
     }
@@ -469,7 +469,7 @@ FocusScope {
         font.pixelSize: root.sh * 0.0333333 //16
     }
 
-    // Launch overlay — covers the detail screen while Plex prepares the stream
+    // Launch overlay — covers the detail screen while Emby/Jellyfin prepares the stream
     // so a slow server doesn't make the app look frozen after pressing PLAY.
     Rectangle {
         anchors.fill: parent

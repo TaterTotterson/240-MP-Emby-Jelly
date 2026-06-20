@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Window
+import Components
 
 Window {
     id: root
@@ -62,15 +63,24 @@ Window {
             "tertiary": "#424242",
             "surface": "#121212",
             "accent": "#FFFFFF"
+        },
+        "Off Air": {
+            "primary": "#FFFFFF",
+            "secondary": "#E8E8E8",
+            "tertiary": "#8A8A8A",
+            "surface": "#050505",
+            "accent": "#FF6A00",
+            "static": true
         }
     })
     property var allThemes: themes  // may gain a "Custom" entry on startup
-    property string currentTheme: "Video 1"
-    property string primaryColor:   (allThemes[currentTheme] || allThemes["Video 1"]).primary
-    property string secondaryColor: (allThemes[currentTheme] || allThemes["Video 1"]).secondary
-    property string tertiaryColor:  (allThemes[currentTheme] || allThemes["Video 1"]).tertiary
-    property string surfaceColor:   (allThemes[currentTheme] || allThemes["Video 1"]).surface
-    property string accentColor:    (allThemes[currentTheme] || allThemes["Video 1"]).accent
+    property string currentTheme: "Off Air"
+    property string primaryColor:   (allThemes[currentTheme] || allThemes["Off Air"]).primary
+    property string secondaryColor: (allThemes[currentTheme] || allThemes["Off Air"]).secondary
+    property string tertiaryColor:  (allThemes[currentTheme] || allThemes["Off Air"]).tertiary
+    property string surfaceColor:   (allThemes[currentTheme] || allThemes["Off Air"]).surface
+    property string accentColor:    (allThemes[currentTheme] || allThemes["Off Air"]).accent
+    property bool staticBackgroundEnabled: !!((allThemes[currentTheme] || allThemes["Off Air"]).static)
 
     readonly property real sw: width
     readonly property real sh: height
@@ -92,10 +102,10 @@ Window {
             root.allThemes = t
         }
 
-        var savedTheme = (cfg.app && cfg.app.color_scheme) || "Video 1"
+        var savedTheme = (cfg.app && cfg.app.color_scheme) || "Off Air"
         if (savedTheme === "Custom" && !root.allThemes["Custom"]) {
-            appCore.save_setting("", "color_scheme", "Video 1")
-            savedTheme = "Video 1"
+            appCore.save_setting("", "color_scheme", "Off Air")
+            savedTheme = "Off Air"
         }
         root.currentTheme = savedTheme
 
@@ -130,6 +140,12 @@ Window {
     property var appCurrentParams: ({})
 
     // --- MODULE LOADER ---
+    StaticBackground {
+        anchors.fill: parent
+        visible: root.staticBackgroundEnabled
+        running: visible
+    }
+
     Loader {
         id: moduleLoader;
         anchors.fill: parent;

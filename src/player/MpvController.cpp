@@ -105,7 +105,7 @@ void MpvController::loadAndPlay(const QString &url, float startSeconds,
                                  int audioTrack, int subTrack,
                                  const QStringList &subFiles, bool loop,
                                  int playlistStart, float transcodeOffsetSec,
-                                 const QString &plexToken, bool muteAudio,
+                                 const QString &httpHeaderFields, bool muteAudio,
                                  const QString &oscMode, bool shuffle) {
     if (m_process) {
         m_process->disconnect();
@@ -197,18 +197,16 @@ void MpvController::loadAndPlay(const QString &url, float startSeconds,
         args << QStringLiteral("--shuffle");
     if (muteAudio)
         args << QStringLiteral("--no-audio");
-    if (!plexToken.isEmpty()) {
-        args << QString("--http-header-fields=X-Plex-Token:%1").arg(plexToken);
-        // Plex URLs are direct file paths — yt-dlp hook is not needed and causes
-        // spurious 401 errors when mpv encounters a non-2xx response from PMS.
+    if (!httpHeaderFields.isEmpty()) {
+        args << QString("--http-header-fields=%1").arg(httpHeaderFields);
+    }
+    if (url.startsWith("http://", Qt::CaseInsensitive) ||
+        url.startsWith("https://", Qt::CaseInsensitive)) {
+        // Authenticated media-server URLs are direct file paths/playlists.
+        // yt-dlp is not needed and can turn server-side HTTP errors into
+        // confusing noise after the real failure has already been logged.
         args << QStringLiteral("--ytdl=no");
     }
-
-    // plex.direct certs are Let's Encrypt-signed but ffmpeg's bundled CA bundle
-    // may not trust the full chain (same reason Qt needs ignoreSslErrors for these
-    // hosts). Disable TLS verification only for plex.direct playback URLs.
-    if (QUrl(url).host().endsWith(QStringLiteral(".plex.direct")))
-        args << QStringLiteral("--tls-verify=no");
 
     m_process = new QProcess(this);
     m_process->setProcessChannelMode(QProcess::MergedChannels);
@@ -236,7 +234,7 @@ void MpvController::loadAndPlay(const QString &url, float startSeconds,
 
         if (m_previousVt > 0) {
             // loadAndPlay called while already in headless mode (e.g. rapid
-            // double call from Plex Player). m_previousVt already holds Qt's
+            // double call from a media-server player). m_previousVt already holds Qt's
             // real VT — do NOT overwrite it with the current free VT. The old
             // mpv was terminated above; just launch the replacement directly.
             args << QString("--input-conf=%1").arg(m_inputConfPath)

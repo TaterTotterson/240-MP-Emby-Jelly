@@ -39,7 +39,7 @@ else
     # No display server — EGLFS for headless/kiosk mode (RPi Lite).
     export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-eglfs}"
     export QT_QPA_EGLFS_ALWAYS_SET_MODE=1
-    export QT_QPA_EGLFS_KMS_ATOMIC=1
+    export QT_QPA_EGLFS_KMS_ATOMIC="${QT_QPA_EGLFS_KMS_ATOMIC:-0}"
 
     # Point Qt EGLFS at the DRM card that has a real display pipeline. Render-only
     # nodes (v3d) have no connector dirs under /sys/class/drm and make Qt fail. On

@@ -11,7 +11,7 @@ If you want to contribute, please start with [CONTRIBUTING.md](CONTRIBUTING.md).
 Think of 240-MP as a **browsing shell** that hands off to **purpose-built tools**.
 
 - The app shell handles browsing, auth, and settings
-- **Modules** are self-contained media integrations (Local Files, Plex, Ambient Mode, etc...) that the shell discovers and loads at startup.
+- **Modules** are self-contained media integrations (Local Files, Emby/Jellyfin, Ambient Mode, etc...) that the shell discovers and loads at startup.
 - When a user picks something to play, the shell hands off to a dedicated fullscreen tool and resumes when that tool exits. For video, that tool is **mpv**, launched as a subprocess by `MpvController`. mpv is installed separately (`apt install mpv` / `brew install mpv`).  240-MP does not link against libmpv.
 
 The guiding idea: **browse structured content, then hand off to the right tool for the job** rather than bundling everything into one binary.
@@ -26,13 +26,13 @@ The guiding idea: **browse structured content, then hand off to the right tool f
     modules/                        # per-module C++ backends
       local_files/
         LocalFilesBackend.h/.cpp
-      plex/
-        PlexBackend.h/.cpp          # good reference backend implementation
+      emby_jellyfin/
+        EmbyJellyfinBackend.h/.cpp  # local media-server backend implementation
       ...
     player/
       MpvController.h/.cpp          # mpv subprocess controller: QProcess launch + IPC socket
   modules/                          # QML + assets per module (discovered at startup)
-    plex/
+    emby_jellyfin/
       manifest.json                 # module identity and settings shape
       assets/images/logo.svg
       views/
@@ -49,7 +49,7 @@ The guiding idea: **browse structured content, then hand off to the right tool f
   CMakeLists.txt
 ```
 
-There are three modules today: `local_files`, `plex`, and `ambient_mode`. `plex` is a helpful reference when building something new as it covers a more complex use case (connecting to a 3rd party API with auth)
+There are three modules today: `local_files`, `emby_jellyfin`, and `ambient_mode`. `emby_jellyfin` is a helpful reference when building something new as it covers a more complex use case (connecting to a local API with auth).
 
 ## Anatomy of a Module
 
@@ -101,23 +101,22 @@ Additional fields any setting may carry:
 
 - `key` — the config key written under `modules.<id>.<key>` in `config.json`. Supports dot-notation.
 - `label` — display text in Settings.
-- `requires_auth` — if `true`, the setting is only shown when the module reports an authenticated state via `get_module_auth_state(moduleId)`. Used by Plex to hide server/user/library settings until sign-in.
+- `requires_auth` — if `true`, the setting is only shown when the module reports an authenticated state via `get_module_auth_state(moduleId)`. Used by Emby/Jellyfin to hide library/playback settings until sign-in.
 
 ### Dynamic options and apply slots
 
 - For `list_single` / `multiselect_submenu` with `"options_source": "dynamic"`, the backend slot named by `options_slot` must emit `dynamicOptionsReady(key, [{id, label}])`. `AppCore` re-emits it to QML with the module ID prepended.
 - For `list_single` with `apply_slot`, that slot is called automatically (routed through `invoke_module_action`) when the user changes the value.
 
-A real example (Plex) — note `requires_auth`, dynamic options, and apply slots:
+A real example (Emby/Jellyfin) — note `requires_auth` and dynamic options:
 
 ```json
 {
-  "key": "server_machine_id",
-  "label": "Server",
-  "type": "list_single",
+  "key": "libraries",
+  "label": "Libraries",
+  "type": "multiselect_submenu",
   "options_source": "dynamic",
-  "options_slot": "getServers",
-  "apply_slot": "applyCurrentServerSetting",
+  "options_slot": "getLibraries",
   "requires_auth": true
 }
 ```
@@ -126,7 +125,7 @@ A real example (Plex) — note `requires_auth`, dynamic options, and apply slots
 
 `AppCore` (`src/AppCore.h/.cpp`) is the shell. It's exposed to all QML as the context property **`appCore`**.
 
-**Global context properties** (available in all QML): `appCore`, `mpvController`, plus one per module backend (`localFilesBackend`, `plexBackend`, `ambientModeBackend`, …). Backend names are assigned by the `registerModule` call in `main.cpp`.
+**Global context properties** (available in all QML): `appCore`, `mpvController`, plus one per module backend (`localFilesBackend`, `embyBackend`, `ambientModeBackend`, …). Backend names are assigned by the `registerModule` call in `main.cpp`.
 
 ### Q_INVOKABLE slots used by QML
 
@@ -263,7 +262,7 @@ All input arrives in QML as **ordinary key events** — views bind `Keys.onPress
 ## C++ Backend Patterns
 
 Backends are `QObject` subclasses registered via `registerModule(...)` before the engine loads.
-Please review `PlexBackend` as a reference implementation.
+Please review `EmbyJellyfinBackend` as a reference implementation.
 
 - All HTTP via `QNetworkAccessManager` — async, on the main thread, no worker threads needed.
 - Results returned to QML via signals.
@@ -344,7 +343,7 @@ FocusScope {
 - `moduleName` / `moduleIcon` always come from `appCore.get_module_info(...)` — never hardcoded.
 - `goBack()` is the only signal that leaves the module — child views never emit it directly.
 - `navigateBack` merges `navListState` back into params on pop so list views can restore position.
-- For auth flows that need `replaceWith` (navigate without pushing to the stack), please see the Plex module as a reference.
+- For auth flows that need `replaceWith` (navigate without pushing to the stack), please see the Emby/Jellyfin module as a reference.
 
 ### Items.qml — list view
 
@@ -459,9 +458,9 @@ User configuration is stored in `config.json` in the app's data directory:
 
 ```json
 {
-  "app": { "color_scheme": "Video 1" },
+  "app": { "color_scheme": "Off Air" },
   "modules": {
-    "com.240mp.plex": { "enabled": true, "server_machine_id": "...", ... }
+    "com.240mp.emby_jellyfin": { "enabled": true, "libraries": { "...": true }, ... }
   }
 }
 ```

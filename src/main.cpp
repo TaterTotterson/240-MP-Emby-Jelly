@@ -12,7 +12,7 @@
 
 #include "AppCore.h"
 #include "modules/local_files/LocalFilesBackend.h"
-#include "modules/plex/PlexBackend.h"
+#include "modules/emby_jellyfin/EmbyJellyfinBackend.h"
 #include "modules/ambient_mode/AmbientModeBackend.h"
 #include "player/MpvController.h"
 #include "input/InputManager.h"
@@ -50,7 +50,7 @@ static QString resolveDataRoot() {
 int main(int argc, char *argv[]) {
     QGuiApplication app(argc, argv);
     app.setApplicationName("240-MP");
-    app.setApplicationVersion("2026.06.18");
+    app.setApplicationVersion("2026.06.20");
 
     // Hide cursor — 240-MP is keyboard-only so the cursor serves no purpose.
     // On Linux, only hide on headless EGLFS (not desktop X11/Wayland sessions).
@@ -77,7 +77,7 @@ int main(int argc, char *argv[]) {
 
     AppCore             appCore(appRoot, dataRoot);
     LocalFilesBackend   localFiles(appRoot, dataRoot);
-    PlexBackend         plexBackend(appRoot, dataRoot);
+    EmbyJellyfinBackend embyBackend(appRoot, dataRoot);
     AmbientModeBackend  ambientMode(dataRoot);
     MpvController       mpvController(appRoot, &appCore);
     InputManager        inputManager(dataRoot);
@@ -92,7 +92,7 @@ int main(int argc, char *argv[]) {
     // introspection. The module ID lives in exactly one place per module.
     QQmlContext *ctx = engine.rootContext();
     appCore.registerModule("com.240mp.local_files",  "localFilesBackend",  &localFiles,  ctx);
-    appCore.registerModule("com.240mp.plex",         "plexBackend",        &plexBackend, ctx);
+    appCore.registerModule("com.240mp.emby_jellyfin","embyBackend",        &embyBackend, ctx);
     appCore.registerModule("com.240mp.ambient_mode", "ambientModeBackend", &ambientMode, ctx);
 
     ctx->setContextProperty("appCore",       &appCore);

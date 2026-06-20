@@ -60,7 +60,7 @@ FocusScope {
     // ----------------------------------------------------------------
 
     Connections {
-        target: plexBackend
+        target: embyBackend
 
         function onItemsLoaded(loadedItems) {
             var consuming = ["library_all", "hub_items", "collection_items",
@@ -243,25 +243,25 @@ FocusScope {
         isLoading = true
         errorMessage = ""
         if (listType === "library_all")
-            plexBackend.load_library_all(sectionId)
+            embyBackend.load_library_all(sectionId)
         else if (listType === "hub_items")
-            plexBackend.load_items_for_hub(hubKey)
+            embyBackend.load_items_for_hub(hubKey)
         else if (listType === "hubs")
-            plexBackend.load_section_hubs(sectionId)
+            embyBackend.load_section_hubs(sectionId)
         else if (listType === "collections")
-            plexBackend.load_collections(sectionId)
+            embyBackend.load_collections(sectionId)
         else if (listType === "collection_items")
-            plexBackend.load_collection_items(ratingKey)
+            embyBackend.load_collection_items(ratingKey)
         else if (listType === "playlists")
-            plexBackend.load_playlists(sectionId)
+            embyBackend.load_playlists(sectionId)
         else if (listType === "playlist_items")
-            plexBackend.load_playlist_items(ratingKey)
+            embyBackend.load_playlist_items(ratingKey)
         else if (listType === "categories")
-            plexBackend.load_categories(sectionId)
+            embyBackend.load_categories(sectionId)
         else if (listType === "category_items")
-            plexBackend.load_category_items(sectionId, categoryKey)
+            embyBackend.load_category_items(sectionId, categoryKey)
         else if (listType === "continue_watching")
-            plexBackend.load_continue_watching()
+            embyBackend.load_continue_watching()
     }
 
     focus: true

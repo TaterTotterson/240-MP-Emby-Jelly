@@ -1,17 +1,48 @@
 #include "AppCore.h"
+#include <algorithm>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonArray>
+#include <QJsonObject>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QNetworkRequest>
+#include <QProcess>
 #include <QUrl>
 #include <QVariantMap>
 #include <QDebug>
 #include <QRegularExpression>
 #include <QQmlContext>
 
+namespace {
+constexpr const char *kDefaultUpdateManifestUrl =
+    "https://raw.githubusercontent.com/TaterTotterson/240-MP-Emby-Jelly/main/update-manifest.json";
+constexpr const char *kPiUpdateHelper = "/usr/local/sbin/240mp-update";
+
+int compareVersions(const QString &left, const QString &right)
+{
+    const QStringList leftParts = left.split(QRegularExpression("[^0-9]+"), Qt::SkipEmptyParts);
+    const QStringList rightParts = right.split(QRegularExpression("[^0-9]+"), Qt::SkipEmptyParts);
+    const int count = std::max(leftParts.size(), rightParts.size());
+
+    for (int i = 0; i < count; ++i) {
+        const int l = i < leftParts.size() ? leftParts[i].toInt() : 0;
+        const int r = i < rightParts.size() ? rightParts[i].toInt() : 0;
+        if (l < r) return -1;
+        if (l > r) return 1;
+    }
+
+    return QString::compare(left, right, Qt::CaseInsensitive);
+}
+}
+
 AppCore::AppCore(const QString &appRoot, const QString &dataRoot, QObject *parent)
     : QObject(parent), m_appRoot(appRoot), m_dataRoot(dataRoot)
 {
+    m_updateNetwork = new QNetworkAccessManager(this);
+
     QDir modulesDir(appRoot + "/modules");
     const QStringList dirs = modulesDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
     for (const QString &folder : dirs) {
@@ -59,7 +90,7 @@ QJsonObject AppCore::loadConfig() const {
     }
     // Return a sensible default if the file is missing or corrupt
     return QJsonObject{
-        {"app", QJsonObject{{"color_scheme","Video 1"}}},
+        {"app", QJsonObject{{"color_scheme","Off Air"}}},
         {"modules", QJsonObject{}}
     };
 }
@@ -267,6 +298,125 @@ QString AppCore::get_module_auth_state(const QString &moduleId) {
     );
     if (!ok) return QString{};
     return result;
+}
+
+QString AppCore::updateManifestUrl() const {
+    const QByteArray envUrl = qgetenv("MP240_UPDATE_MANIFEST_URL");
+    if (!envUrl.isEmpty())
+        return QString::fromUtf8(envUrl);
+    return QString::fromUtf8(kDefaultUpdateManifestUrl);
+}
+
+bool AppCore::canInstallUpdates() const {
+    if (!isAutostartSession() && qEnvironmentVariableIntValue("MP240_ALLOW_UPDATE_INSTALL") != 1)
+        return false;
+
+    const QFileInfo helperInfo(QString::fromUtf8(kPiUpdateHelper));
+    return helperInfo.exists() && helperInfo.isExecutable();
+}
+
+QVariantMap AppCore::getUpdateInfo() const {
+    return QVariantMap{
+        {"currentVersion", appVersion()},
+        {"manifestUrl", updateManifestUrl()},
+        {"repo", "https://github.com/TaterTotterson/240-MP-Emby-Jelly"},
+        {"canInstall", canInstallUpdates()}
+    };
+}
+
+void AppCore::checkForUpdates() {
+    QUrl url(updateManifestUrl());
+    QVariantMap result = getUpdateInfo();
+
+    if (!url.isValid() || url.scheme().isEmpty()) {
+        result["ok"] = false;
+        result["status"] = "error";
+        result["message"] = "UPDATE MANIFEST URL IS INVALID.";
+        emit updateCheckFinished(result);
+        return;
+    }
+
+    QNetworkRequest request(url);
+    request.setRawHeader("User-Agent", QByteArray("240-MP/") + appVersion().toUtf8());
+
+    QNetworkReply *reply = m_updateNetwork->get(request);
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        QVariantMap result = getUpdateInfo();
+        result["ok"] = false;
+        result["status"] = "error";
+
+        const QVariant statusAttr = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute);
+        const int httpStatus = statusAttr.isValid() ? statusAttr.toInt() : 0;
+        if (reply->error() != QNetworkReply::NoError || httpStatus >= 400) {
+            const QString detail = reply->errorString().isEmpty()
+                ? QStringLiteral("HTTP %1").arg(httpStatus)
+                : reply->errorString().toUpper();
+            result["message"] = QStringLiteral("UPDATE CHECK FAILED: %1").arg(detail);
+            reply->deleteLater();
+            emit updateCheckFinished(result);
+            return;
+        }
+
+        QJsonParseError parseError;
+        const QJsonDocument doc = QJsonDocument::fromJson(reply->readAll(), &parseError);
+        reply->deleteLater();
+
+        if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
+            result["message"] = "UPDATE MANIFEST IS NOT VALID JSON.";
+            emit updateCheckFinished(result);
+            return;
+        }
+
+        const QJsonObject manifest = doc.object();
+        const QString latestVersion = manifest.value("version").toString();
+        const QString sourceArchive = manifest.value("source_archive").toString();
+        const QString repo = manifest.value("repo").toString(result.value("repo").toString());
+
+        result["latestVersion"] = latestVersion;
+        result["sourceArchive"] = sourceArchive;
+        result["repo"] = repo;
+
+        if (latestVersion.isEmpty() || sourceArchive.isEmpty()) {
+            result["message"] = "UPDATE MANIFEST IS MISSING VERSION OR SOURCE.";
+            emit updateCheckFinished(result);
+            return;
+        }
+
+        result["ok"] = true;
+        if (compareVersions(latestVersion, appVersion()) > 0) {
+            result["status"] = "available";
+            result["message"] = QStringLiteral("VERSION %1 IS READY.").arg(latestVersion);
+        } else {
+            result["status"] = "current";
+            result["message"] = QStringLiteral("VERSION %1 IS CURRENT.").arg(appVersion());
+        }
+
+        emit updateCheckFinished(result);
+    });
+}
+
+void AppCore::installUpdate() {
+    QVariantMap result = getUpdateInfo();
+    result["ok"] = false;
+    result["status"] = "error";
+
+    if (!canInstallUpdates()) {
+        result["message"] = "UPDATES INSTALL FROM THE RASPBERRY PI IMAGE ONLY.";
+        emit updateInstallFinished(result);
+        return;
+    }
+
+    const QFileInfo sudoInfo("/usr/bin/sudo");
+    const QString sudoPath = sudoInfo.exists() ? QStringLiteral("/usr/bin/sudo") : QStringLiteral("sudo");
+    const QStringList args{QString::fromUtf8(kPiUpdateHelper), updateManifestUrl()};
+    const bool started = QProcess::startDetached(sudoPath, args);
+
+    result["ok"] = started;
+    result["status"] = started ? "started" : "error";
+    result["message"] = started
+        ? "INSTALLING UPDATE. 240-MP WILL RESTART."
+        : "COULD NOT START THE UPDATE HELPER.";
+    emit updateInstallFinished(result);
 }
 
 QVariant AppCore::get_installed_modules() {

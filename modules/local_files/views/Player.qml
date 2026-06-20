@@ -1,4 +1,5 @@
 import QtQuick
+import Components
 
 FocusScope {
     id: playerRoot
@@ -171,12 +172,18 @@ FocusScope {
 
     Rectangle {
         anchors.fill: parent
-        color: root.surfaceColor
+        color: root.staticBackgroundEnabled ? "transparent" : root.surfaceColor
         visible: overlayVisible
+
+        StaticBackground {
+            anchors.fill: parent
+            visible: root.staticBackgroundEnabled
+            running: visible
+        }
 
         Rectangle {
             id: dialogRect
-            color: root.surfaceColor
+            color: root.staticBackgroundEnabled ? "transparent" : root.surfaceColor
             anchors.centerIn: parent
             width: root.sw * 0.76875 //492
             height: root.sh * 0.2833333 //136

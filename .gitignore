@@ -7,7 +7,60 @@
 .Trashes
 ehthumbs.db
 Thumbs.db
+
 # 240-MP #
 ######################
-/build
-/.cache
+
+# Local CMake/Qt builds
+/build/
+/build-*/
+/cmake-build-*/
+/out/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CPackConfig.cmake
+CPackSourceConfig.cmake
+install_manifest.txt
+compile_commands.json
+_CPack_Packages/
+*.app/
+*.dSYM/
+
+# Raspberry Pi image build cache and artifacts
+/.cache/
+/deploy/
+/work/
+*.img
+*.img.xz
+*.img.zip
+*.iso
+*.info
+
+# Packaged desktop/release artifacts
+*.dmg
+*.pkg
+*.tar
+*.tar.gz
+*.tgz
+*.zip
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+*.swp
+*.swo
+*.bak
+*~
+
+# Local environment/secrets
+.env
+.env.*
+!.env.example
+
+# Local AI/editor agent metadata
+/CLAUDE.md
+/AGENTS.md
+/.agents/
+/.codex/

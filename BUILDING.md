@@ -68,9 +68,9 @@ On macOS all user configuration is stored at:
 
 ```
 ~/Library/Application Support/240-MP/
-  config.json       ← app and module settings
-  plex_auth.json    ← plex auth
-  input.cfg         ← optional gamepad mapping overrides (see Gamepad input below)
+  config.json                 ← app and module settings
+  emby_jellyfin_auth.json     ← local Emby/Jellyfin auth
+  input.cfg                   ← optional gamepad mapping overrides (see Gamepad input below)
 ```
 
 This directory is created automatically on first run. It is separate from the app itself, so deleting or rebuilding the app will not wipe your settings.
@@ -89,7 +89,7 @@ sudo apt-get install -y \
   qml6-module-qtquick qml6-module-qtquick-controls \
   qml6-module-qtquick-window \
   libqt6svg6 qt6-svg-dev qt6-svg-plugins qt6-wayland \
-  libdrm-dev libxkbcommon-dev libssl-dev \
+  libdrm-dev libxkbcommon-dev \
   libsdl2-dev \
   mpv
 ```
@@ -141,12 +141,30 @@ On Raspberry Pi OS all user configuration is stored at:
 
 ```
 ~/.local/share/240-MP/
-  config.json      ← app and module settings
-  plex_auth.json   ← plex auth
-  input.cfg        ← optional gamepad mapping overrides (see Gamepad input below)
+  config.json                 ← app and module settings
+  emby_jellyfin_auth.json     ← local Emby/Jellyfin auth
+  input.cfg                   ← optional gamepad mapping overrides (see Gamepad input below)
 ```
 
 This directory is created automatically on first run. It is separate from the app itself, so deleting or rebuilding the app will not wipe your settings.
+
+## Raspberry Pi appliance image
+
+To build a ready-to-flash Raspberry Pi OS Lite image with 240-MP already installed and enabled on boot, use:
+
+```bash
+./scripts/build-pi-image.sh
+```
+
+The image builder wraps Raspberry Pi's `pi-gen` arm64 branch, adds a custom `stage240mp`, builds the app inside the Pi rootfs, installs it under `/opt/240mp`, enables `240mp.service`, and defaults to the CRT/composite NTSC profile for the 3.5mm output.
+
+For HDMI output:
+
+```bash
+PI_IMAGE_PROFILE=hdmi ./scripts/build-pi-image.sh
+```
+
+Output images are written to `.cache/pi-gen-arm64/deploy/`. The default login is `tater` / `pi`; see [INSTALL.md](INSTALL.md#option-1-build-a-ready-to-flash-appliance-image) for all supported image variables.
 
 ## Gamepad input (input.cfg)
 
@@ -250,6 +268,7 @@ How you read logs depends on whether you installed the autostart service:
     sudo systemctl stop 240mp
     240mp
     ```
+    Ready-to-flash images also leave `tty2` available as a recovery console; press `Ctrl+Alt+F2`, log in, and inspect `journalctl -u 240mp -b`.
 
 ### mpv playback logs
 

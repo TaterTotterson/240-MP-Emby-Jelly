@@ -1,9 +1,9 @@
 import QtQuick
 import Components
 
-// Sub-menu for a single library: Recommended, Library, Collections, Playlists, Categories
+// Main Emby/Jellyfin home screen: Continue Watching + library list
 FocusScope {
-    id: subMenuRoot
+    id: browseRoot
 
     property var navParams: ({})
     property var navListState: navParams.navListState || ({})
@@ -11,42 +11,32 @@ FocusScope {
     signal navigateTo(string path, var params, var listState)
     signal goBack()
 
-    property string libraryName: navParams.libraryName || ""
-    property string sectionId: navParams.sectionId || ""
-    property string sectionType: navParams.sectionType || ""
-
-    property var menuItems: []
+    property var libraries: []
+    property string serverName: ""
 
     Connections {
-        target: plexBackend
+        target: embyBackend
 
-        function onCapabilitiesLoaded(caps) {
-            var items = []
-            if (caps.recommended) items.push({ label: "RECOMMENDED", action: "hubs" })
-            items.push({ label: "LIBRARY", action: "library_all" })
-            items.push({ label: "COLLECTIONS", action: "collections" })
-            items.push({ label: "PLAYLISTS", action: "playlists" })
-            items.push({ label: "CATEGORIES", action: "categories" })
-            subMenuRoot.menuItems = items
+        function onLibrariesLoaded(items) {
+            browseRoot.libraries = items
             if (items.length > 0) {
                 var restore = (navListState.currentIndex !== undefined) ? navListState.currentIndex : 0
-                menuList.currentIndex = Math.min(restore, items.length - 1)
-                menuList.positionViewAtIndex(menuList.currentIndex, ListView.Contain)
+                libraryList.currentIndex = Math.min(restore, items.length - 1)
+                libraryList.positionViewAtIndex(libraryList.currentIndex, ListView.Contain)
             }
+        }
+
+        function onErrorOccurred(msg) {
+            console.log("[Library] Error: " + msg)
         }
     }
 
     Component.onCompleted: {
-        plexBackend.check_section_capabilities(sectionId)
+        browseRoot.serverName = embyBackend.get_active_server_name()
+        embyBackend.load_libraries()
     }
 
     focus: true
-    Keys.onPressed: function(event) {
-        if (event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace || event.key === Qt.Key_Back) {
-            goBack()
-            event.accepted = true
-        }
-    }
 
     // ---
     // UI
@@ -56,7 +46,7 @@ FocusScope {
     AppBar {
         iconSource: moduleRoot.moduleIcon
         title: moduleRoot.moduleName
-        subtitle: libraryName
+        subtitle: browseRoot.serverName
         anchors.top: parent.top
         anchors.left: parent.left
         anchors.topMargin: root.sh * 0.125 //60
@@ -65,7 +55,7 @@ FocusScope {
 
     // Loading Indicator
     Text {
-        visible: menuItems.length === 0
+        visible: libraries.length === 0
         text: "LOADING..."
         color: root.tertiaryColor
         font.family: root.globalFont
@@ -75,8 +65,8 @@ FocusScope {
 
     // Body
     ListView {
-        id: menuList
-        model: menuItems
+        id: libraryList
+        model: libraries
         anchors.top: parent.top
         anchors.left: parent.left
         anchors.topMargin: root.sh * 0.25 //120
@@ -90,46 +80,51 @@ FocusScope {
         Keys.onDownPressed: if (currentIndex < count - 1) currentIndex++
 
         Keys.onReturnPressed: {
-            var item = menuItems[currentIndex]
-            if (!item) return
+            var lib = libraries[currentIndex]
+            if (!lib) return
 
-            var params = {
-                listType: item.action,
-                title: item.label,
-                sectionId: sectionId,
-                libraryName: libraryName
+            if (lib.key === "continue_watching") {
+                browseRoot.navigateTo("Items.qml", {
+                    listType: "continue_watching",
+                    title: "CONTINUE WATCHING",
+                    libraryName: lib.title
+                }, { currentIndex: libraryList.currentIndex })
+            } else {
+                browseRoot.navigateTo("Library.qml", {
+                    libraryName: lib.title,
+                    sectionId: lib.sectionId,
+                    sectionType: lib.sectionType
+                }, { currentIndex: libraryList.currentIndex })
             }
-
-            subMenuRoot.navigateTo("Items.qml", params, { currentIndex: menuList.currentIndex })
         }
 
         Keys.onPressed: function(event) {
-            if (event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace) {
-                subMenuRoot.goBack()
+            if (event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace || event.key === Qt.Key_Back) {
+                browseRoot.goBack()
                 event.accepted = true
             }
         }
 
         delegate: Item {
-            width: menuList.width
+            width: libraryList.width
             height: root.sh * 0.0583333 //28
 
             Item {
                 id: textClip
-                width: Math.min(rowText.implicitWidth, menuList.width)
+                width: Math.min(rowText.implicitWidth, libraryList.width)
                 height: parent.height
                 clip: true
 
                 Rectangle {
                     color: root.accentColor
                     anchors.fill: rowText
-                    visible: menuList.currentIndex === index
+                    visible: libraryList.currentIndex === index
                 }
 
                 Text {
                     id: rowText
-                    text: modelData.label || ""
-                    color: menuList.currentIndex === index ? root.surfaceColor : root.primaryColor
+                    text: modelData.title || ""
+                    color: libraryList.currentIndex === index ? root.surfaceColor : root.primaryColor
                     font.family: root.globalFont
                     font.capitalization: Font.AllUppercase
                     anchors.verticalCenter: parent.verticalCenter
@@ -139,6 +134,21 @@ FocusScope {
                     rightPadding: root.sw * 0.009375 //6
                     bottomPadding: root.sh * 0.00625 //3
                     font.pixelSize: root.sh * 0.05 //24
+                }
+
+                SequentialAnimation {
+                    running: (libraryList.currentIndex === index) &&
+                             (rowText.implicitWidth > textClip.width)
+                    loops: Animation.Infinite
+                    onRunningChanged: if (!running) rowText.x = 0
+                    PauseAnimation { duration: 1500 }
+                    NumberAnimation {
+                        target: rowText; property: "x"
+                        to: textClip.width - rowText.implicitWidth
+                        duration: Math.abs(to) * 20
+                    }
+                    PauseAnimation { duration: 2000 }
+                    PropertyAction { target: rowText; property: "x"; value: 0 }
                 }
             }
         }

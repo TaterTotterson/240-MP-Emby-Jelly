@@ -2,7 +2,7 @@ import QtQuick
 import Components
 
 FocusScope {
-    id: seasonRoot
+    id: showRoot
 
     property var navParams: ({})
 
@@ -10,44 +10,92 @@ FocusScope {
     signal goBack()
 
     property var item: navParams.item || {}
-    property string showTitle: navParams.showTitle || item.grandparentTitle || ""
     property string libraryName: navParams.libraryName || ""
 
-    property var episodes: []
+    property var seasons: []
     property bool isLoading: false
 
-    // Focus rows: 0 = play button, 1 = episode list
+    // Focus rows: 0 = play button, 1 = season list
     property int focusRow: 0
 
+    // When true, the next childrenLoaded signal carries episodes to play, not seasons to display
+    property bool playOnLoad: false
+    property bool waitingForOnDeck: false
+
     Connections {
-        target: plexBackend
+        target: embyBackend
 
         function onChildrenLoaded(loadedItems) {
-            seasonRoot.isLoading = false
-            seasonRoot.episodes = loadedItems
-            if (loadedItems.length > 0) {
-                episodeList.currentIndex = 0
+            if (showRoot.playOnLoad) {
+                showRoot.playOnLoad = false
+                showRoot.playBestEpisodeFromList(loadedItems)
+            } else {
+                showRoot.isLoading = false
+                showRoot.seasons = loadedItems
+                if (loadedItems.length > 0) seasonList.currentIndex = 0
+            }
+        }
+
+        function onInProgressEpisodeLoaded(episodeItem) {
+            if (!showRoot.waitingForOnDeck) return
+            showRoot.waitingForOnDeck = false
+            if (episodeItem && episodeItem.ratingKey) {
+                // Found an in-progress episode — RSUM it directly
+                showRoot.navigateTo("Item.qml", { item: episodeItem, libraryName: showRoot.libraryName }, {})
+            } else {
+                // No in-progress episode — fall back to first-unwatched logic
+                showRoot.startPlayFallback()
             }
         }
 
         function onErrorOccurred(msg) {
-            seasonRoot.isLoading = false
-            console.log("[SeasonItem] Error: " + msg)
+            showRoot.isLoading = false
+            showRoot.playOnLoad = false
+            showRoot.waitingForOnDeck = false
+            console.log("[ShowItem] Error: " + msg)
         }
+    }
+
+    function startPlayFallback() {
+        if (seasons.length === 0) return
+        var targetSeason = null
+        for (var i = 0; i < seasons.length; i++) {
+            if (seasons[i].viewedLeafCount < seasons[i].leafCount) {
+                targetSeason = seasons[i]; break
+            }
+        }
+        if (!targetSeason) targetSeason = seasons[0]
+        showRoot.playOnLoad = true
+        embyBackend.load_children(targetSeason.ratingKey)
+    }
+
+    function playBestEpisodeFromList(epList) {
+        if (epList.length === 0) return
+        var target = null
+        for (var i = 0; i < epList.length; i++) {
+            if (epList[i].viewOffset > 0) { target = epList[i]; break }
+        }
+        if (!target) {
+            for (var j = 0; j < epList.length; j++) {
+                if (!epList[j].viewCount || epList[j].viewCount === 0) { target = epList[j]; break }
+            }
+        }
+        if (!target) target = epList[0]
+        showRoot.navigateTo("Item.qml", { item: target, libraryName: libraryName }, {})
     }
 
     Component.onCompleted: {
         isLoading = true
         focusRow = 0
-        if (item.ratingKey) plexBackend.load_children(item.ratingKey)
+        if (item.ratingKey) embyBackend.load_children(item.ratingKey)
     }
 
     focus: true
 
     Keys.onUpPressed: {
         if (focusRow === 1) {
-            if (episodeList.currentIndex > 0) {
-                episodeList.currentIndex--
+            if (seasonList.currentIndex > 0) {
+                seasonList.currentIndex--
             } else {
                 focusRow = 0
             }
@@ -55,22 +103,25 @@ FocusScope {
     }
     Keys.onDownPressed: {
         if (focusRow === 0) {
-            if (episodes.length > 0) focusRow = 1
+            if (seasons.length > 0) focusRow = 1
         } else {
-            if (episodeList.currentIndex < episodes.length - 1)
-                episodeList.currentIndex++
+            if (seasonList.currentIndex < seasons.length - 1)
+                seasonList.currentIndex++
         }
     }
     Keys.onReturnPressed: {
         if (focusRow === 0) {
-            playBestEpisode()
+            if (seasons.length === 0) return
+            showRoot.waitingForOnDeck = true
+            embyBackend.load_on_deck_for(item.ratingKey)
         } else {
-            var ep = episodes[episodeList.currentIndex]
-            if (!ep) return
-            seasonRoot.navigateTo("Item.qml", {
-                item: ep,
+            var season = seasons[seasonList.currentIndex]
+            if (!season) return
+            showRoot.navigateTo("ItemSeason.qml", {
+                item: season,
+                showTitle: item.title,
                 libraryName: libraryName
-            }, { currentIndex: episodeList.currentIndex })
+            }, { currentIndex: seasonList.currentIndex })
         }
     }
     Keys.onPressed: function(event) {
@@ -78,32 +129,6 @@ FocusScope {
             goBack()
             event.accepted = true
         }
-    }
-
-    function playBestEpisode() {
-        if (episodes.length === 0) return
-        var target = null
-        // 1. In-progress episode (viewOffset > 0)
-        for (var i = 0; i < episodes.length; i++) {
-            if (episodes[i].viewOffset > 0) { target = episodes[i]; break }
-        }
-        // 2. First unwatched episode (viewCount === 0)
-        if (!target) {
-            for (var j = 0; j < episodes.length; j++) {
-                if (!episodes[j].viewCount || episodes[j].viewCount === 0) { target = episodes[j]; break }
-            }
-        }
-        // 3. All watched — start from beginning
-        if (!target) {
-            target = episodes[0]
-        }
-        var ep = Object.assign({}, target)
-        // For cases 2 and 3 ensure we start from beginning
-        if (!ep.viewOffset) ep.viewOffset = 0
-        seasonRoot.navigateTo("Item.qml", {
-            item: ep,
-            libraryName: libraryName
-        }, {})
     }
 
     // ---
@@ -140,8 +165,8 @@ FocusScope {
         clip: true
 
         Row {
-            id: seasonDetails
-            height: root.sh * 0.175 //84
+            id: showDetails
+            height: root.sh * 0.2916667 //140
             spacing: root.sw * 0.0375 //24
 
             // PLAY / RSUM button
@@ -155,13 +180,7 @@ FocusScope {
 
                 Text {
                     anchors.centerIn: parent
-                    text: {
-                        // Show RSUM if any in-progress episode exists
-                        for (var i = 0; i < seasonRoot.episodes.length; i++) {
-                            if (seasonRoot.episodes[i].viewOffset > 0) return "RSUM \u25BA"
-                        }
-                        return "PLAY \u25BA"
-                    }
+                    text: (item.viewOffset && item.viewOffset > 0) ? "RSUM \u25BA" : "PLAY \u25BA"
                     color: focusRow === 0 ? root.surfaceColor : root.primaryColor
                     font.family: root.globalFont
                     font.pixelSize: root.sh * 0.05 //24
@@ -173,8 +192,9 @@ FocusScope {
                 width: root.sw * 0.54375 //348
                 spacing: root.sh * 0.0166667 //8
 
+                //Name
                 Text {
-                    text: showTitle
+                    text: item.title || ""
                     color: root.primaryColor
                     font.family: root.globalFont
                     font.capitalization: Font.AllUppercase
@@ -183,15 +203,13 @@ FocusScope {
                     font.pixelSize: root.sh * 0.05 //24
                 }
 
+                // Seasons & Year
                 Text {
                     text: {
                         var parts = []
-                        if (item.index === 0) parts.push("Specials")
-                        else if (item.index) parts.push("SEASON " + item.index)
-                        var yr = item.originallyAvailableAt
-                                 ? item.originallyAvailableAt.substring(0, 4)
-                                 : (item.year ? String(item.year) : "")
-                        if (yr) parts.push(yr)
+                        var sc = seasons.length
+                        if (item.year) parts.push(String(item.year))
+                        if (sc > 0) parts.push(sc + (sc === 1 ? " SEASON" : " SEASONS"))
                         return parts.join(" - ")
                     }
                     color: root.secondaryColor
@@ -201,14 +219,48 @@ FocusScope {
                     width: parent.width
                     font.pixelSize: root.sh * 0.0333333 //16
                 }
+
+                Item {
+                    id: summaryContainer
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    height: root.sh * 0.1375 //66
+                    clip: true
+
+                    Text {
+                        id: summaryText
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        text: item.summary || ""
+                        color: root.primaryColor
+                        font.family: root.globalFont
+                        wrapMode: Text.WordWrap
+                        font.pixelSize: root.sh * 0.0291667 //14
+                        lineHeight: 1.3
+                    }
+
+                    SequentialAnimation {
+                        running: item.summary !== null && summaryText.implicitHeight > summaryContainer.height
+                        loops: Animation.Infinite
+                        onRunningChanged: if (!running) summaryText.y = 0
+                        PauseAnimation { duration: 3000 }
+                        NumberAnimation {
+                            target: summaryText; property: "y"
+                            to: summaryContainer.height - summaryText.implicitHeight
+                            duration: Math.abs(to) * 120
+                        }
+                        PauseAnimation { duration: 4000 }
+                        PropertyAction { target: summaryText; property: "y"; value: 0 }
+                    }
+                }
             }
         }
 
         // Seasons
         Text {
-            id: episodeListLabel
-            anchors.top: seasonDetails.bottom
-            text: "Episodes:"
+            id: seasonListLabel
+            anchors.top: showDetails.bottom
+            text: "Seasons:"
             color: root.secondaryColor
             font.family: root.globalFont
             font.capitalization: Font.AllUppercase
@@ -218,41 +270,37 @@ FocusScope {
             font.pixelSize: root.sh * 0.0291667 //14
         }
 
+        // Season List
         ListView {
-            id: episodeList
-            model: episodes
-            anchors.top: episodeListLabel.bottom
+            id: seasonList
+            model: seasons
+            anchors.top: seasonListLabel.bottom
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.topMargin: root.sh * 0.0145833 //7
-            height: root.sh * 0.2916667 //140
+            height: root.sh * 0.175 //84
             clip: true
 
             delegate: Item {
-                width: episodeList.width
+                width: seasonList.width
                 height: root.sh * 0.0583333 //28
 
                 Item {
                     id: textClip
-                    width: Math.min(rowText.implicitWidth, episodeList.width)
+                    width: Math.min(rowText.implicitWidth, seasonList.width)
                     height: parent.height
                     clip: true
 
                     Rectangle {
                         color: root.accentColor
                         anchors.fill: rowText
-                        visible: episodeList.currentIndex === index && focusRow === 1
+                        visible: seasonList.currentIndex === index && focusRow === 1
                     }
 
                     Text {
                         id: rowText
-                        text: {
-                            var s = (modelData.parentIndex != null) ? ("S" + modelData.parentIndex) : ""
-                            var e = modelData.index ? ("E" + modelData.index) : ""
-                            var prefix = (s || e) ? (s + e + ": ") : ""
-                            return prefix + (modelData.title || "")
-                        }
-                        color: (episodeList.currentIndex === index && focusRow === 1)
+                        text: modelData.title || ""
+                        color: (seasonList.currentIndex === index && focusRow === 1)
                                ? root.surfaceColor : root.primaryColor
                         font.family: root.globalFont
                         font.capitalization: Font.AllUppercase
@@ -266,7 +314,7 @@ FocusScope {
                     }
 
                     SequentialAnimation {
-                        running: (episodeList.currentIndex === index) &&
+                        running: (seasonList.currentIndex === index) &&
                                  (focusRow === 1) &&
                                  (rowText.implicitWidth > textClip.width)
                         loops: Animation.Infinite

@@ -1,4 +1,5 @@
 import QtQuick
+import Components
 
 FocusScope {
     id: playerRoot
@@ -12,7 +13,7 @@ FocusScope {
     signal updateBackItem(var item)
 
     property string streamUrl:    navParams.streamUrl    || ""
-    property string plexToken:    navParams.plexToken    || ""
+    property string httpHeaderFields:    navParams.httpHeaderFields    || ""
     property string ratingKey:    navParams.ratingKey    || ""
     property string partKey:      navParams.partKey      || ""
     property string partId:       navParams.partId       || ""
@@ -110,7 +111,7 @@ FocusScope {
         stoppedReported = true
         var pos = lastKnownPositionMs || finalPositionMs
         var dur = lastKnownDurationMs || finalDurationMs
-        plexBackend.update_timeline(ratingKey, partKey, "stopped", pos, dur)
+        embyBackend.update_timeline(ratingKey, partKey, "stopped", pos, dur)
     }
 
     function stopPlayback() {
@@ -200,11 +201,11 @@ FocusScope {
             // Transcode covers the full timeline (requested at offset 0), so seek mpv
             // to the resume point. This keeps everything before offsetMs seekable, so
             // the user can rewind past the resume point.
-            mpvController.loadAndPlay(streamUrl, offsetMs / 1000.0, 0, -1, [], false, -1, 0.0, plexToken)
+            mpvController.loadAndPlay(streamUrl, offsetMs / 1000.0, 0, -1, [], false, -1, 0.0, httpHeaderFields)
         } else {
             var sub = buildSubArgs()
             mpvController.loadAndPlay(streamUrl, offsetMs / 1000.0,
-                                       audioIdx + 1, sub.track, sub.urls, false, -1, 0.0, plexToken)
+                                       audioIdx + 1, sub.track, sub.urls, false, -1, 0.0, httpHeaderFields)
         }
     }
 
@@ -225,14 +226,14 @@ FocusScope {
     }
 
     Connections {
-        target: plexBackend
+        target: embyBackend
         function onErrorOccurred(msg) { console.log("[Player] Backend error: " + msg) }
-        function onStreamUrlReady(url, plexToken) {
+        function onStreamUrlReady(url, httpHeaderFields) {
             if (pendingNextEpisode) {
                 // Stream URL for the auto-advanced next episode just arrived.
                 pendingNextEpisode = false
                 playerRoot.streamUrl = url
-                playerRoot.plexToken = plexToken
+                playerRoot.httpHeaderFields = httpHeaderFields
                 doStartPlayback(0)
                 return
             }
@@ -242,7 +243,7 @@ FocusScope {
                 // Fallback transcode was requested at offset 0 (full timeline), so seek
                 // mpv to the resume point — keeps everything before it seekable.
                 var sub = buildSubArgs()
-                mpvController.loadAndPlay(url, viewOffset / 1000.0, audioIdx + 1, sub.track, sub.urls, false, -1, 0.0, plexToken)
+                mpvController.loadAndPlay(url, viewOffset / 1000.0, audioIdx + 1, sub.track, sub.urls, false, -1, 0.0, httpHeaderFields)
                 return
             }
         }
@@ -308,20 +309,20 @@ FocusScope {
         selectedSubtitleId = subId
         captureCarryLanguages()
 
-        // Persist the chosen tracks to Plex so a transcode burns the right streams
+        // Persist the chosen tracks to Emby/Jellyfin so a transcode burns the right streams
         // (mirrors Item.qml's behavior before playback).
         if (partId) {
-            if (audioId) plexBackend.set_audio_stream(audioId, partId)
-            plexBackend.set_subtitle_stream(subId, partId)
+            if (audioId) embyBackend.set_audio_stream(audioId, partId)
+            embyBackend.set_subtitle_stream(subId, partId)
         }
 
         // Both paths resolve through onStreamUrlReady, which checks this flag.
         // build_stream_url emits synchronously, so the flag must be set first.
         pendingNextEpisode = true
         if (isTranscoding) {
-            plexBackend.request_transcode(ratingKey, partKey, sessionId, audioId, subId, 0)
+            embyBackend.request_transcode(ratingKey, partKey, sessionId, audioId, subId, 0)
         } else {
-            plexBackend.build_stream_url(ratingKey, partKey, sessionId)
+            embyBackend.build_stream_url(ratingKey, partKey, sessionId)
         }
     }
 
@@ -347,12 +348,12 @@ FocusScope {
         }
 
         function onPlaybackFinishedNaturally(finalPositionMs, finalDurationMs) {
-            // mpv reached the end of the file. Mark it stopped (watched) in Plex,
+            // mpv reached the end of the file. Mark it stopped (watched) in Emby/Jellyfin,
             // then auto-advance to the next episode if the feature is enabled.
             reportStopped(finalPositionMs, finalDurationMs)
             if (!autoplayNext) { goBack(); return }
             pendingNextEpisode = true
-            plexBackend.load_next_episode(ratingKey)
+            embyBackend.load_next_episode(ratingKey)
         }
 
         function onPlaybackFailed() {
@@ -360,7 +361,7 @@ FocusScope {
                 // Direct play failed (e.g. HTTP 500 from PMS on WAN). Retry
                 // transparently with transcoding at the same resume offset.
                 pendingRetryTranscode = true
-                plexBackend.request_transcode(ratingKey, partKey, sessionId,
+                embyBackend.request_transcode(ratingKey, partKey, sessionId,
                                               selectedAudioId, selectedSubtitleId,
                                               0)
             } else {
@@ -375,7 +376,7 @@ FocusScope {
         running:  true
         onTriggered: {
             if (mpvController.position > 0)
-                plexBackend.update_timeline(ratingKey, partKey, "playing",
+                embyBackend.update_timeline(ratingKey, partKey, "playing",
                                             mpvController.position, mpvController.duration)
         }
     }
@@ -416,12 +417,18 @@ FocusScope {
 
     Rectangle {
         anchors.fill: parent
-        color: root.surfaceColor
+        color: root.staticBackgroundEnabled ? "transparent" : root.surfaceColor
         visible: overlayVisible
+
+        StaticBackground {
+            anchors.fill: parent
+            visible: root.staticBackgroundEnabled
+            running: visible
+        }
 
         Rectangle {
             id: dialogRect
-            color: root.surfaceColor
+            color: root.staticBackgroundEnabled ? "transparent" : root.surfaceColor
             anchors.centerIn: parent
             width: root.sw * 0.76875
             height: root.sh * 0.2833333

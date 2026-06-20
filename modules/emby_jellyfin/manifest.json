@@ -1,39 +1,14 @@
 {
-  "id": "com.240mp.plex",
-  "name": "Plex",
+  "id": "com.240mp.emby_jellyfin",
+  "name": "Video on Demand",
   "icon": "assets/images/logo.svg",
   "entry_point_qml": "views/Root.qml",
   "settings": [
     {
       "key": "enabled",
-      "label": "Enabled",
+      "label": "ENABLED",
       "type": "toggle",
-      "default": "OFF"
-    },
-    {
-      "key": "current_user_id",
-      "label": "Current User",
-      "type": "list_single",
-      "options_source": "dynamic",
-      "options_slot": "getUsers",
-      "apply_slot": "applyCurrentUserSetting",
-      "requires_auth": true
-    },
-    {
-      "key": "auto_sign_in",
-      "label": "Auto Sign In",
-      "type": "toggle",
-      "default": "OFF",
-      "requires_auth": true
-    },
-    {
-      "key": "server_machine_id",
-      "label": "Server",
-      "type": "list_single",
-      "options_source": "dynamic",
-      "options_slot": "getServers",
-      "apply_slot": "applyCurrentServerSetting",
-      "requires_auth": true
+      "default": "ON"
     },
     {
       "key": "libraries",

@@ -4,7 +4,7 @@
 
 240-MP is a retro VCR style frontend to play content on [Raspberry Pi](https://github.com/anthonycaccese/240-MP/wiki/Hardware-Testing) (preferably hooked up to a CRT TV). 
 
-Playback experiences are handled via modules to enable new integrations without requiring major changes to the overall frontend. There are 3 currently included playback modules; one for [Local Files](https://github.com/anthonycaccese/240-MP/wiki/Module:-Local-Files), one for [Plex](https://github.com/anthonycaccese/240-MP/wiki/Module:-Plex) and a module similar to art/wallpaper modes on modern tvs called ([Ambient:Mode](https://github.com/anthonycaccese/240-MP/wiki/Module:-Ambient-Mode))
+Playback experiences are handled via modules to enable new integrations without requiring major changes to the overall frontend. There are 3 currently included playback modules; one for [Local Files](https://github.com/anthonycaccese/240-MP/wiki/Module:-Local-Files), one called Video on Demand for local Emby/Jellyfin servers, and a module similar to art/wallpaper modes on modern tvs called ([Ambient:Mode](https://github.com/anthonycaccese/240-MP/wiki/Module:-Ambient-Mode))
 
 It's built to work in conjuction with MPV which will be installed (or updated) as a dependency during the [install](#Install) steps outlined below.
 
@@ -33,20 +33,18 @@ Watch on YouTube: https://youtu.be/r-gylGDoELY
 - Playback history
 - Switch audio/subtitle tracks during playback
 
-### Plex Module ([Wiki](https://github.com/anthonycaccese/240-MP/wiki/Module:-Plex))
+### Video on Demand Module
 - Designed for CRT navigation (simple, fast, list browsing)
 - Supported library types: `Movies, TV Shows, Other Videos`
-- Server switching
-- User profile switching and auto sign in
+- Local-only server sign in with a manually entered LAN URL
 - Select specific libraries to display
 - Continue Watching and Resume
 - Autoplay next episode in a season (optional, off by default)
-- Hub, Playlist, Collection and Category support
-- Movie editions
+- Playlist and Collection support
 - Select preferred audio/subtitle track before playback and switch tracks during playback
 - Full library browsing by letter
 - Show/Season browsing
-- Video quality selection: Direct Playback (Default) or Transcode options
+- Video quality selection: Auto direct play with AV1-to-H.264 fallback, plus forced transcode options
 
 ### Ambient:Mode Module ([Wiki](https://github.com/anthonycaccese/240-MP/wiki/Module:-Ambient-Mode))
 - Supported video file types: `"mp4", "mkv", "avi", "mov", "m4v", "webm", "wmv", "flv", "f4v", "mpg", "mpeg", "vob"`
@@ -60,6 +58,7 @@ Watch on YouTube: https://youtu.be/r-gylGDoELY
 - Media Keys during video playback (volume +/-, mute, play/pause, stop, seek, next chapter, previous chapter)
 
 ## Install 
+- [Ready-to-flash Raspberry Pi image](INSTALL.md#option-1-build-a-ready-to-flash-appliance-image)
 - [On a Raspberry Pi](INSTALL.md#on-a-raspberry-pi)
 - [On macOS (ARM)](INSTALL.md#on-macos-arm)
 
@@ -92,7 +91,7 @@ Watch on YouTube: https://youtu.be/r-gylGDoELY
 
 - The `VCR OSD Mono` font was created by Riciery Santos Leal (a.k.a. mrmanet) https://www.dafont.com/vcr-osd-mono.font
 - Because this is a hobby project (and a fairly niche use case), I am using [Claude Code](https://www.anthropic.com/product/claude-code) to build a large part of the backend C++ code and structure the modules.  If you have concerns with that, I am glad to talk through it.  Also, please feel free to fork this repo, update any aspects and tailor things to your own use case; that's why the source is fully open and available.
-- Thank you to Plex for providing an open and free [API](https://developer.plex.tv/) with all the endpoints needed for me to make my own custom client
+- Thank you to Emby and Jellyfin for local media-server APIs that make custom clients possible
 - Thank you to [the MPV team](https://mpv.io/) for a simple, extensible and cross platform media player
 - And thank you to the [Raspberry Pi Foundation](https://www.raspberrypi.org/) for helping me fill a drawer with SBCs to tinker with and inspire fun ideas like this project ❤️
 

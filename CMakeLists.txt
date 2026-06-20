@@ -8,7 +8,6 @@ set(CMAKE_AUTOMOC ON)
 include(GNUInstallDirs)
 
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Quick Qml Network Svg)
-find_package(OpenSSL REQUIRED)
 find_package(SDL2 CONFIG REQUIRED) # gamepad input (InputManager)
 
 # libdrm is used on Linux/RPi to save and restore the KMS CRTC state
@@ -26,7 +25,7 @@ add_executable(240mp
     src/main.cpp
     src/AppCore.cpp
     src/modules/local_files/LocalFilesBackend.cpp
-    src/modules/plex/PlexBackend.cpp
+    src/modules/emby_jellyfin/EmbyJellyfinBackend.cpp
     src/modules/ambient_mode/AmbientModeBackend.cpp
     src/player/MpvController.cpp
     src/input/InputManager.cpp
@@ -40,7 +39,6 @@ target_link_libraries(240mp PRIVATE
     Qt6::Qml
     Qt6::Network
     Qt6::Svg
-    OpenSSL::Crypto
     SDL2::SDL2
     $<$<NOT:$<BOOL:${APPLE}>>:${Libdrm_LIBRARIES}>
 )
@@ -91,7 +89,9 @@ if(APPLE)
 
     # Use a hardcoded relative path — $<TARGET_BUNDLE_CONTENT_DIR> resolves to
     # the build tree, not the install prefix, inside install() rules.
-    install(FILES "${CMAKE_SOURCE_DIR}/Main.qml"
+    install(FILES
+        "${CMAKE_SOURCE_DIR}/Main.qml"
+        "${CMAKE_SOURCE_DIR}/update-manifest.json"
         DESTINATION "240mp.app/Contents/Resources"
         COMPONENT Runtime)
 
@@ -110,7 +110,9 @@ else()
         RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
         COMPONENT Runtime)
 
-    install(FILES "${CMAKE_SOURCE_DIR}/Main.qml"
+    install(FILES
+        "${CMAKE_SOURCE_DIR}/Main.qml"
+        "${CMAKE_SOURCE_DIR}/update-manifest.json"
         DESTINATION "${CMAKE_INSTALL_DATADIR}/240mp"
         COMPONENT Runtime)
 

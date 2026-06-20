@@ -18,6 +18,12 @@ FocusScope {
 
     property bool quitOverlayVisible: false
     property int quitChoiceIndex: 0
+    property bool updateOverlayVisible: false
+    property bool updateBusy: false
+    property int updateChoiceIndex: 0
+    property string updateMessage: ""
+    property string updateDetail: ""
+    property var updateOptions: []
 
     // Quit overlay choices. Under the autostart service (headless RPi) the quit menu has an
     // "Exit to Terminal" option that drops to a tty1 login without powering off; that
@@ -39,7 +45,7 @@ FocusScope {
         var items = []
 
         // APPLICATION section
-        var colorOpts = ["Video 1","Late Night","Synthwave","Terminal","T-120","Amber","Kinescope"]
+        var colorOpts = ["Off Air","Video 1","Late Night","Synthwave","Terminal","T-120","Amber","Kinescope"]
         var custom = appCore.getCustomColorScheme()
         if (Object.keys(custom).length === 5) colorOpts.push("Custom")
         items.push({
@@ -47,7 +53,7 @@ FocusScope {
             key: "color_scheme",
             label: "Color Scheme",
             options: colorOpts,
-            value: appSettings["color_scheme"] || "Video 1",
+            value: appSettings["color_scheme"] || "Off Air",
             moduleId: ""
         })
 
@@ -69,6 +75,7 @@ FocusScope {
 
         // SYSTEM section
         items.push({ type: "section", label: "System:" })
+        items.push({ type: "action", action: "check_updates", label: "Check For Updates", value: root.appVersion })
         items.push({ type: "quit", label: "Quit 240-MP" })
 
         settingsItems = items
@@ -101,7 +108,72 @@ FocusScope {
         return settingsList.currentIndex
     }
 
+    function beginUpdateCheck() {
+        updateBusy = true
+        updateChoiceIndex = 0
+        updateMessage = "CHECKING FOR UPDATES..."
+        updateDetail = "CURRENT " + root.appVersion
+        updateOptions = []
+        updateOverlayVisible = true
+        appCore.checkForUpdates()
+    }
+
+    function handleUpdateCheckResult(result) {
+        updateBusy = false
+        var status = result.status || "error"
+        var currentVersion = result.currentVersion || root.appVersion
+        var latestVersion = result.latestVersion || ""
+        updateMessage = result.message || "UPDATE CHECK FAILED."
+        updateDetail = latestVersion.length > 0
+            ? "CURRENT " + currentVersion + "  LATEST " + latestVersion
+            : "CURRENT " + currentVersion
+
+        if (status === "available" && result.canInstall) {
+            updateOptions = [
+                { label: "Install Update", action: "install" },
+                { label: "Cancel", action: "cancel" }
+            ]
+        } else {
+            if (status === "available" && !result.canInstall)
+                updateMessage = updateMessage + " INSTALL FROM THE PI IMAGE."
+            updateOptions = [{ label: "OK", action: "cancel" }]
+        }
+        updateChoiceIndex = 0
+    }
+
+    function handleUpdateInstallResult(result) {
+        if ((result.status || "") === "started") {
+            updateBusy = true
+            updateMessage = result.message || "INSTALLING UPDATE. 240-MP WILL RESTART."
+            updateDetail = "LEAVE POWER CONNECTED"
+            updateOptions = []
+        } else {
+            updateBusy = false
+            updateMessage = result.message || "COULD NOT START UPDATE."
+            updateDetail = "CURRENT " + root.appVersion
+            updateOptions = [{ label: "OK", action: "cancel" }]
+            updateChoiceIndex = 0
+        }
+    }
+
+    function closeUpdateOverlay() {
+        updateOverlayVisible = false
+        updateBusy = false
+        updateOptions = []
+        settingsList.forceActiveFocus()
+    }
+
     Component.onCompleted: buildModel()
+
+    Connections {
+        target: appCore
+        function onUpdateCheckFinished(result) {
+            settingsRoot.handleUpdateCheckResult(result)
+        }
+        function onUpdateInstallFinished(result) {
+            settingsRoot.handleUpdateInstallResult(result)
+        }
+    }
 
     // Header
     AppBar {
@@ -171,6 +243,8 @@ FocusScope {
             var row = settingsItems[currentIndex]
             if (row && row.type === "submenu") {
                 settingsRoot.navigateTo("views/ModuleSettings.qml", { moduleId: row.moduleId }, { currentIndex: settingsList.currentIndex })
+            } else if (row && row.type === "action" && row.action === "check_updates") {
+                settingsRoot.beginUpdateCheck()
             } else if (row && row.type === "quit") {
                 settingsRoot.quitChoiceIndex = 0
                 settingsRoot.quitOverlayVisible = true
@@ -241,7 +315,7 @@ FocusScope {
                         font.pixelSize: root.sh * 0.0375 //18
                     }
                     Text {
-                        visible: modelData.type === "list_single"
+                        visible: modelData.type === "list_single" || modelData.value !== undefined
                         text: modelData.value || ""
                         color: settingsList.currentIndex === index ? root.surfaceColor : root.primaryColor
                         font.family: root.globalFont
@@ -254,7 +328,7 @@ FocusScope {
                         font.pixelSize:root.sh * 0.05 //24
                     }
                     Text {
-                        visible: modelData.type === "submenu" || modelData.type === "list_single"
+                        visible: modelData.type === "submenu" || modelData.type === "list_single" || modelData.type === "action"
                         text: "\u25BA"
                         color: settingsList.currentIndex === index ? root.surfaceColor : root.tertiaryColor
                         font.family: root.globalFont
@@ -284,9 +358,15 @@ FocusScope {
     // --- QUIT CONFIRMATION OVERLAY ---
     Rectangle {
         anchors.fill: parent
-        color: root.surfaceColor
+        color: root.staticBackgroundEnabled ? "transparent" : root.surfaceColor
         visible: quitOverlayVisible
         focus: quitOverlayVisible
+
+        StaticBackground {
+            anchors.fill: parent
+            visible: root.staticBackgroundEnabled
+            running: visible
+        }
 
         Keys.onUpPressed:   { quitChoiceIndex = Math.max(0, quitChoiceIndex - 1) }
         Keys.onDownPressed: { quitChoiceIndex = Math.min(quitOptions.length - 1, quitChoiceIndex + 1) }
@@ -305,7 +385,7 @@ FocusScope {
         }
 
         Rectangle {
-            color: root.surfaceColor
+            color: root.staticBackgroundEnabled ? "transparent" : root.surfaceColor
             anchors.centerIn: parent
             width: root.sw * 0.76875   //492
             height: root.sh * 0.2833333 //136
@@ -356,6 +436,132 @@ FocusScope {
 
                 Text {
                     text: root.hints.back + ":BACK " + root.hints.navigate + ":NAVIGATE " + root.hints.select + ":SELECT"
+                    color: root.tertiaryColor
+                    font.family: root.globalFont
+                    font.pixelSize: root.sh * 0.0333333 //16
+                    anchors.horizontalCenter: parent.horizontalCenter
+                }
+            }
+        }
+    }
+
+    // --- UPDATE OVERLAY ---
+    Rectangle {
+        anchors.fill: parent
+        color: root.staticBackgroundEnabled ? "transparent" : root.surfaceColor
+        visible: updateOverlayVisible
+        focus: updateOverlayVisible
+
+        StaticBackground {
+            anchors.fill: parent
+            visible: root.staticBackgroundEnabled
+            running: visible
+        }
+
+        Keys.onUpPressed: {
+            if (updateOptions.length > 0) updateChoiceIndex = Math.max(0, updateChoiceIndex - 1)
+        }
+        Keys.onDownPressed: {
+            if (updateOptions.length > 0) updateChoiceIndex = Math.min(updateOptions.length - 1, updateChoiceIndex + 1)
+        }
+        Keys.onReturnPressed: {
+            if (updateOptions.length > 0) {
+                var act = updateOptions[updateChoiceIndex].action
+                if (act === "install") {
+                    updateBusy = true
+                    updateMessage = "STARTING UPDATE..."
+                    updateDetail = "CURRENT " + root.appVersion
+                    updateOptions = []
+                    appCore.installUpdate()
+                } else {
+                    settingsRoot.closeUpdateOverlay()
+                }
+            }
+        }
+        Keys.onPressed: function(event) {
+            if (!updateBusy && (event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace || event.key === Qt.Key_Back)) {
+                settingsRoot.closeUpdateOverlay()
+                event.accepted = true
+            }
+        }
+
+        Rectangle {
+            color: root.staticBackgroundEnabled ? "transparent" : root.surfaceColor
+            anchors.centerIn: parent
+            width: root.sw * 0.76875 //492
+            height: root.sh * 0.4166667 //200
+
+            Column {
+                id: updateDialogColumn
+                anchors.fill: parent
+                spacing: root.sh * 0.0270833 //13
+
+                Text {
+                    text: "SOFTWARE UPDATE"
+                    color: root.secondaryColor
+                    font.family: root.globalFont
+                    font.pixelSize: root.sh * 0.0333333 //16
+                    anchors.horizontalCenter: parent.horizontalCenter
+                }
+
+                Text {
+                    text: updateMessage
+                    color: root.primaryColor
+                    font.family: root.globalFont
+                    font.capitalization: Font.AllUppercase
+                    horizontalAlignment: Text.AlignHCenter
+                    wrapMode: Text.WordWrap
+                    width: updateDialogColumn.width
+                    font.pixelSize: root.sh * 0.0416667 //20
+                    anchors.horizontalCenter: parent.horizontalCenter
+                }
+
+                Text {
+                    text: updateDetail
+                    color: root.tertiaryColor
+                    font.family: root.globalFont
+                    font.capitalization: Font.AllUppercase
+                    horizontalAlignment: Text.AlignHCenter
+                    wrapMode: Text.WordWrap
+                    width: updateDialogColumn.width
+                    font.pixelSize: root.sh * 0.0333333 //16
+                    anchors.horizontalCenter: parent.horizontalCenter
+                }
+
+                Column {
+                    visible: updateOptions.length > 0
+                    Repeater {
+                        model: updateOptions
+                        delegate: Item {
+                            width: updateDialogColumn.width
+                            height: root.sh * 0.0583333 //28
+
+                            Rectangle {
+                                anchors.fill: updateOptionText
+                                color: root.accentColor
+                                visible: index === updateChoiceIndex
+                            }
+
+                            Text {
+                                id: updateOptionText
+                                anchors.verticalCenter: parent.verticalCenter
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                text: modelData.label
+                                color: index === updateChoiceIndex ? root.surfaceColor : root.primaryColor
+                                font.family: root.globalFont
+                                font.capitalization: Font.AllUppercase
+                                topPadding: root.sh * 0.0041667 //2
+                                leftPadding: root.sw * 0.009375 //6
+                                rightPadding: root.sw * 0.009375 //6
+                                bottomPadding: root.sh * 0.00625 //3
+                                font.pixelSize: root.sh * 0.05 //24
+                            }
+                        }
+                    }
+                }
+
+                Text {
+                    text: updateBusy ? "" : root.hints.back + ":BACK " + root.hints.navigate + ":NAVIGATE " + root.hints.select + ":SELECT"
                     color: root.tertiaryColor
                     font.family: root.globalFont
                     font.pixelSize: root.sh * 0.0333333 //16

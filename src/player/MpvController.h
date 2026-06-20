@@ -44,7 +44,7 @@ public:
                                   bool loop = false,
                                   int playlistStart = -1,
                                   float transcodeOffsetSec = 0.0f,
-                                  const QString &plexToken = {},
+                                  const QString &httpHeaderFields = {},
                                   bool muteAudio = false,
                                   const QString &oscMode = {},
                                   bool shuffle = false);

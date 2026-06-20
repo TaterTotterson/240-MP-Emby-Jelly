@@ -10,7 +10,7 @@ FocusScope {
 
     // The module's manifest id — the single place it appears in this module's QML.
     // Child views reference it via moduleRoot.moduleId.
-    property string moduleId: "com.240mp.plex"
+    property string moduleId: "com.240mp.emby_jellyfin"
     property var _moduleInfo: appCore.get_module_info(moduleId)
     property string moduleName: _moduleInfo.name || ""
     property string moduleIcon: _moduleInfo.icon || ""
@@ -73,36 +73,21 @@ FocusScope {
         }
     }
 
-    // Handle logout signal from backend: clear stack and go to auth
+    // Handle logout signal from backend: clear stack and go to local sign-in
     Connections {
-        target: plexBackend
+        target: embyBackend
         function onLogoutComplete() {
             moduleRoot.navStack = []
-            moduleRoot.navigateTo("PinAuth.qml", {})
-        }
-        function onAuthRevoked() {
-            moduleRoot.navStack = []
-            moduleRoot.navigateTo("PinAuth.qml", {})
+            moduleRoot.navigateTo("LocalLogin.qml", {})
         }
     }
 
     Component.onCompleted: {
-        plexBackend.reset_device_check()
-        var state = plexBackend.get_auth_state()
+        var state = embyBackend.get_auth_state()
         if (state === "authed") {
-            var autoSignIn = appCore.get_setting(moduleId, "auto_sign_in")
-            if (autoSignIn !== true && autoSignIn !== "ON") {
-                plexBackend.load_users_from_cache()
-                navigateTo("UserSelect.qml", { reauth: true })
-            } else {
-                navigateTo("Libraries.qml", {})
-            }
-        } else if (state === "needs_user") {
-            // Have token but no server selected yet — show user list
-            plexBackend.load_users_from_cache()
-            navigateTo("UserSelect.qml", {})
+            navigateTo("Libraries.qml", {})
         } else {
-            navigateTo("PinAuth.qml", {})
+            navigateTo("LocalLogin.qml", {})
         }
     }
 }

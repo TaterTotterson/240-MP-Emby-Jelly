@@ -7,6 +7,7 @@
 #include <QCoreApplication>
 
 class QQmlContext;
+class QNetworkAccessManager;
 
 struct ModuleEntry {
     QString id;
@@ -45,6 +46,9 @@ public:
     Q_INVOKABLE QString parentDirectory(const QString &path);
     Q_INVOKABLE QString homePath();
     Q_INVOKABLE QString get_module_auth_state(const QString &moduleId);
+    Q_INVOKABLE QVariantMap getUpdateInfo() const;
+    Q_INVOKABLE void checkForUpdates();
+    Q_INVOKABLE void installUpdate();
 
     // Registers a module backend: stores it for action routing, exposes it to QML under
     // contextProperty, and connects its optional signals/slots by introspection (only
@@ -58,6 +62,8 @@ signals:
     void moduleSettingChanged(const QString &moduleId, const QString &key, const QVariant &value);
     void dynamicOptionsReady(const QString &moduleId, const QString &key, const QVariant &options);
     void moduleAuthStateChanged(const QString &moduleId);
+    void updateCheckFinished(const QVariantMap &result);
+    void updateInstallFinished(const QVariantMap &result);
 
 private slots:
     // Receive a backend's signal and re-emit it with the module ID prepended, recovering
@@ -70,9 +76,12 @@ private:
     QJsonObject loadConfig() const;
     void saveConfig(const QJsonObject &config) const;
     QString moduleIdForBackend(QObject *backend) const;
+    QString updateManifestUrl() const;
+    bool canInstallUpdates() const;
 
     QString m_appRoot;
     QString m_dataRoot;
     QList<ModuleEntry> m_modules;
     QMap<QString, QObject*> m_backends;
+    QNetworkAccessManager *m_updateNetwork = nullptr;
 };
