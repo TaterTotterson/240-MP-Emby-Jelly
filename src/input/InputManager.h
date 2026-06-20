@@ -77,6 +77,7 @@ private:
     // Maps a HID media-key event to the canonical mpv key name media-keys.lua
     // binds, or an empty string for non-media keys.
     static QString mpvKeyForMediaEvent(const QKeyEvent *ke);
+    static Action remoteActionForKey(const QKeyEvent *ke);
     static Action actionFromString(const QString &name, bool *ok);
     static int buttonFromToken(const QString &token);
     static bool isDirectional(Action a);

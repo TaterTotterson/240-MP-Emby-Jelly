@@ -94,6 +94,30 @@ cmake --install "$TMP_DIR/build" --prefix "$INSTALL_PREFIX"
 install -d -m 0755 "$INSTALL_PREFIX/share/240mp"
 install -m 0644 "$TMP_DIR/manifest.json" "$INSTALL_PREFIX/share/240mp/update-manifest.json"
 
+if [ -f "$TMP_DIR/source/scripts/lib/pi-setup.sh" ]; then
+    log "Refreshing Raspberry Pi service setup"
+    # shellcheck source=/dev/null
+    source "$TMP_DIR/source/scripts/lib/pi-setup.sh"
+
+    SERVICE_USER="$(systemctl show "$SERVICE_NAME" -p User --value 2>/dev/null || true)"
+    SERVICE_USER="${SERVICE_USER:-mp240}"
+    SERVICE_HOME="$(getent passwd "$SERVICE_USER" 2>/dev/null | cut -d: -f6 || true)"
+    SERVICE_HOME="${SERVICE_HOME:-/var/lib/240mp}"
+
+    pi240_create_service_user "$SERVICE_USER" "$SERVICE_HOME"
+    pi240_install_tty_rule
+    pi240_install_launcher "$INSTALL_PREFIX" /usr/local/bin/240mp
+    pi240_install_autostart "$SERVICE_USER" /usr/local/bin/240mp "/etc/systemd/system/${SERVICE_NAME}" "$SERVICE_HOME"
+    pi240_install_update_helper "$SERVICE_USER" /usr/local/sbin/240mp-update "$INSTALL_PREFIX/share/240mp/scripts/240mp-update"
+    if [ "${MP240_ENABLE_IR:-1}" = "1" ]; then
+        pi240_install_ir_support "${MP240_IR_PROTOCOL:-nec}" /etc/rc_keymaps/240mp.toml "${MP240_IR_GPIO_PIN:-17}"
+        pi240_enable_ir_overlay "${MP240_IR_GPIO_PIN:-17}"
+    fi
+    if [ "${MP240_ENABLE_BOOT_SPLASH:-1}" = "1" ]; then
+        pi240_install_boot_splash
+    fi
+fi
+
 systemctl daemon-reload || true
 systemctl start "$SERVICE_NAME"
 SERVICE_STOPPED=0

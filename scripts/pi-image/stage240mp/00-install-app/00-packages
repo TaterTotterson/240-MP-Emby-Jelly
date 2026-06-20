@@ -9,6 +9,8 @@ libxkbcommon-dev
 libsdl2-2.0-0
 libsdl2-dev
 mpv
+plymouth
+plymouth-themes
 pkg-config
 python3
 qml6-module-qtquick
@@ -21,3 +23,4 @@ qt6-svg-dev
 qt6-svg-plugins
 qt6-wayland
 sudo
+v4l-utils

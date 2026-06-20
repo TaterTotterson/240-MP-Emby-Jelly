@@ -75,7 +75,7 @@ private:
     enum class VideoProfile { Pi3, Pi4, PiFullKms, Generic };
 
     void sendCommand(const QJsonArray &args);
-    void doHeadlessRestore(int pos, int dur, bool naturalEof);
+    void doHeadlessRestore(int pos, int dur, bool naturalEof, bool playbackError);
     bool detectHeadlessMode() const;
     VideoProfile detectVideoProfile() const;
     // Appends the profile-specific --vo/--gpu-context/--hwdec flags (honouring the

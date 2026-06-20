@@ -403,6 +403,7 @@ void MpvController::onProcessFinished() {
     // Any other reason (quit/stop/error) or a missing end-file event (crash/kill)
     // is treated as a non-natural exit — the safe default that never auto-advances.
     const bool naturalEof = (m_lastEndFileReason == "eof");
+    const bool playbackError = (exitCode == 2);
 
     if (m_headlessMode) {
         // Defer DRM restore and VT switch by 200 ms. mpv's last KMS atomic
@@ -412,11 +413,11 @@ void MpvController::onProcessFinished() {
         // the kernel falls back to showing the text console on Qt's VT.
         // 200 ms is more than three VSync periods at 60 Hz — enough to clear
         // any in-flight commit without a perceptible delay for the user.
-        QTimer::singleShot(200, this, [this, pos, dur, naturalEof]() {
-            doHeadlessRestore(pos, dur, naturalEof);
+        QTimer::singleShot(200, this, [this, pos, dur, naturalEof, playbackError]() {
+            doHeadlessRestore(pos, dur, naturalEof, playbackError);
         });
     } else {
-        if (exitCode == 2)
+        if (playbackError)
             emit playbackFailed();
         else if (naturalEof)
             emit playbackFinishedNaturally(pos, dur);
@@ -425,7 +426,7 @@ void MpvController::onProcessFinished() {
     }
 }
 
-void MpvController::doHeadlessRestore(int pos, int dur, bool naturalEof) {
+void MpvController::doHeadlessRestore(int pos, int dur, bool naturalEof, bool playbackError) {
 #ifdef Q_OS_LINUX
     if (m_qtDrmFd >= 0) {
         if (::ioctl(m_qtDrmFd, DRM_IOCTL_SET_MASTER, 0) < 0) {
@@ -448,7 +449,9 @@ void MpvController::doHeadlessRestore(int pos, int dur, bool naturalEof) {
         switchToVt(prevVt);
     }
     m_headlessMode = false;
-    if (naturalEof)
+    if (playbackError)
+        emit playbackFailed();
+    else if (naturalEof)
         emit playbackFinishedNaturally(pos, dur);
     else
         emit playbackFinished(pos, dur);
@@ -549,6 +552,16 @@ int MpvController::getActiveVt() const {
 
 int MpvController::findFreeVt() const {
 #ifdef Q_OS_LINUX
+    // Avoid VT_OPENQRY's first available login VT (usually tty2). The Pi image
+    // keeps tty12 reserved for mpv so a failed launch never exposes a getty
+    // prompt while control returns to the Qt app.
+    bool envOk = false;
+    const int configuredVt = qEnvironmentVariableIntValue("MP240_MPV_VT", &envOk);
+    const int preferredVt = envOk ? configuredVt : 12;
+    const int activeVt = getActiveVt();
+    if (preferredVt > 0 && preferredVt <= 63 && preferredVt != activeVt)
+        return preferredVt;
+
     int fd = ::open("/dev/tty0", O_WRONLY);
     if (fd < 0) return 7;
     int n = -1;

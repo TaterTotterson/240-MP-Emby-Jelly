@@ -8,7 +8,7 @@
 # ──────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
-REPO="anthonycaccese/240-mp"          # ← update before first release
+REPO="TaterTotterson/240-MP-Emby-Jelly"
 INSTALL_DIR="/opt/240mp"
 LAUNCHER="/usr/local/bin/240mp"
 SYSTEMD_SERVICE="/etc/systemd/system/240mp.service"
@@ -84,6 +84,7 @@ if [[ "${REPLY}" =~ ^[Yy]$ ]]; then
     SERVICE_USER="${SERVICE_USER:-pi}"
 
     pi240_install_autostart "${SERVICE_USER}" "${LAUNCHER}" "${SYSTEMD_SERVICE}"
+    pi240_install_boot_splash
     echo "Service installed and enabled."
     echo "Start now with: sudo systemctl start 240mp"
 fi

@@ -35,6 +35,18 @@ Build an HDMI image:
 PI_IMAGE_PROFILE=hdmi ./scripts/build-pi-image.sh
 ```
 
+Build without GPIO IR remote support:
+
+```bash
+PI_ENABLE_IR=0 ./scripts/build-pi-image.sh
+```
+
+Build without the graphical boot splash:
+
+```bash
+PI_ENABLE_BOOT_SPLASH=0 ./scripts/build-pi-image.sh
+```
+
 The finished `.img.xz` lands in:
 
 ```text
@@ -60,8 +72,28 @@ Useful image build options:
 | `PI_FIRST_USER_PUBKEY` | unset | SSH public key string or path to a `.pub` file; enables SSH automatically |
 | `PI_ENABLE_SSH` | `0` | Enable SSH when set to `1` |
 | `PI_PUBKEY_ONLY_SSH` | `0` | Disable SSH password auth when set to `1` and `PI_FIRST_USER_PUBKEY` is set |
+| `PI_ENABLE_IR` | `1` | Enable GPIO IR receiver support in the image |
+| `PI_IR_GPIO_PIN` | `17` | GPIO pin used by the IR receiver data line |
+| `PI_IR_PROTOCOL` | `nec` | IR protocol loaded by `ir-keytable` |
+| `PI_ENABLE_BOOT_SPLASH` | `1` | Hide boot text behind the 240-MP Plymouth splash |
 
 Set `PI_FIRST_USER_PASS` to a stronger password before building if this image will leave your lab or home network.
+
+### GPIO IR Remote
+
+The ready-to-flash image enables a GPIO IR receiver by default on GPIO17 and loads a starter NEC keymap for the common small 21-key remotes. Wire the receiver data pin to GPIO17, plus 3.3V and ground, then boot the Pi.
+
+If your remote uses different scancodes, log in on the Pi and run:
+
+```bash
+sudo 240mp-ir-learn
+```
+
+Press the remote buttons, copy the printed scancodes into `/etc/rc_keymaps/240mp.toml`, then reload:
+
+```bash
+sudo systemctl restart 240mp-ir-keymap.service
+```
 
 ### Option 2: Install onto an existing Raspberry Pi OS card
 

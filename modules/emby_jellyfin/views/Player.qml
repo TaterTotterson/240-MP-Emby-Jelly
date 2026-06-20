@@ -225,6 +225,10 @@ FocusScope {
         return m + ":" + (sec < 10 ? "0" : "") + sec
     }
 
+    function toggleEnabledByDefault(raw) {
+        return !(raw === false || raw === "OFF" || raw === "off" || raw === 0 || raw === "0")
+    }
+
     Connections {
         target: embyBackend
         function onErrorOccurred(msg) { console.log("[Player] Backend error: " + msg) }
@@ -388,7 +392,7 @@ FocusScope {
         // Match ModuleSettings.qml's reading of a toggle: stored as a real bool
         // once the user touches it, but accept the legacy "ON" string too.
         var autoplayRaw = appCore.get_setting(moduleRoot.moduleId, "autoplay_next_episode")
-        autoplayNext  = (autoplayRaw === true || autoplayRaw === "ON")
+        autoplayNext  = toggleEnabledByDefault(autoplayRaw)
 
         if (resumeSetting === "ask" && viewOffset > 0) {
             overlayVisible = true

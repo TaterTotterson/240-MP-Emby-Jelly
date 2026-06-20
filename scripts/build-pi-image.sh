@@ -21,6 +21,10 @@ PI_ENABLE_SSH="${PI_ENABLE_SSH:-0}"
 PI_FIRST_USER_PASS="${PI_FIRST_USER_PASS-pi}"
 PI_FIRST_USER_PUBKEY="${PI_FIRST_USER_PUBKEY:-}"
 PI_PUBKEY_ONLY_SSH="${PI_PUBKEY_ONLY_SSH:-0}"
+PI_ENABLE_IR="${PI_ENABLE_IR:-1}"
+PI_IR_GPIO_PIN="${PI_IR_GPIO_PIN:-17}"
+PI_IR_PROTOCOL="${PI_IR_PROTOCOL:-nec}"
+PI_ENABLE_BOOT_SPLASH="${PI_ENABLE_BOOT_SPLASH:-1}"
 
 require_cmd() {
     if ! command -v "$1" >/dev/null 2>&1; then
@@ -169,12 +173,14 @@ if [ -n "$PI_FIRST_USER_PUBKEY" ]; then
     write_config_value DISABLE_FIRST_BOOT_USER_RENAME "1"
 fi
 
-export PIGEN_DOCKER_OPTS="${PIGEN_DOCKER_OPTS:-} --mount type=bind,source=${REPO_ROOT},target=/240mp-src,readonly -e PI240_SOURCE_DIR=/240mp-src -e PI240_IMAGE_PROFILE=${PI_IMAGE_PROFILE} -e PI240_SERVICE_USER=${PI_SERVICE_USER} -e PI240_SERVICE_HOME=${PI_SERVICE_HOME}"
+export PIGEN_DOCKER_OPTS="${PIGEN_DOCKER_OPTS:-} --mount type=bind,source=${REPO_ROOT},target=/240mp-src,readonly -e PI240_SOURCE_DIR=/240mp-src -e PI240_IMAGE_PROFILE=${PI_IMAGE_PROFILE} -e PI240_SERVICE_USER=${PI_SERVICE_USER} -e PI240_SERVICE_HOME=${PI_SERVICE_HOME} -e PI240_ENABLE_IR=${PI_ENABLE_IR} -e PI240_IR_GPIO_PIN=${PI_IR_GPIO_PIN} -e PI240_IR_PROTOCOL=${PI_IR_PROTOCOL} -e PI240_ENABLE_BOOT_SPLASH=${PI_ENABLE_BOOT_SPLASH}"
 
 echo "Building ${PI_IMAGE_NAME} Raspberry Pi image with pi-gen..."
 echo "pi-gen: ${PI_GEN_DIR}"
 echo "config: ${PI_GEN_CONFIG}"
 echo "display profile: ${PI_IMAGE_PROFILE}"
+echo "IR receiver: ${PI_ENABLE_IR} (GPIO ${PI_IR_GPIO_PIN}, protocol ${PI_IR_PROTOCOL})"
+echo "boot splash: ${PI_ENABLE_BOOT_SPLASH}"
 echo "rootfs margin: ${PI_IMAGE_ROOT_MARGIN_MB} MB"
 
 (

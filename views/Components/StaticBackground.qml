@@ -4,19 +4,72 @@ Item {
     id: staticRoot
 
     property bool running: visible
-    property int cellSize: Math.max(2, Math.round(Math.min(width, height) / 150))
-    property real noiseOpacity: 0.50
+    property int noiseWidth: 160
+    property int noiseHeight: 120
+    property int frameInterval: Qt.platform.os === "linux" ? 125 : 83
+    property int frameSeed: 240
+    readonly property real noiseScale: Math.max(width > 0 ? width / noiseCanvas.width : 1,
+                                                height > 0 ? height / noiseCanvas.height : 1)
 
     Rectangle {
         anchors.fill: parent
         color: "#050505"
     }
 
+    Item {
+        anchors.fill: parent
+        clip: true
+
+        Canvas {
+            id: noiseCanvas
+            anchors.centerIn: parent
+            width: staticRoot.noiseWidth
+            height: staticRoot.noiseHeight
+            scale: staticRoot.noiseScale
+            renderTarget: Canvas.Image
+            renderStrategy: Canvas.Threaded
+            smooth: false
+            antialiasing: false
+            opacity: 0.56
+
+            onPaint: {
+                var ctx = getContext("2d")
+                var w = Math.max(1, Math.floor(width))
+                var h = Math.max(1, Math.floor(height))
+                var imageData = ctx.createImageData(w, h)
+                var data = imageData.data
+                var seed = staticRoot.frameSeed
+
+                for (var y = 0; y < h; y++) {
+                    var lineBoost = (y % 13 === 0) ? 26 : 0
+                    for (var x = 0; x < w; x++) {
+                        seed = (seed * 1103515245 + 12345) & 0x7fffffff
+                        var v = (seed >> 8) & 0xff
+                        var luma = 18 + Math.floor(v * 0.72) + lineBoost
+                        if ((seed & 0x001f0000) === 0)
+                            luma = 245
+                        if (luma > 255)
+                            luma = 255
+
+                        var p = (y * w + x) * 4
+                        data[p] = luma
+                        data[p + 1] = luma
+                        data[p + 2] = luma
+                        data[p + 3] = 255
+                    }
+                }
+
+                ctx.putImageData(imageData, 0, 0)
+            }
+        }
+    }
+
     Canvas {
-        id: noiseCanvas
+        id: scanlineCanvas
         anchors.fill: parent
         renderTarget: Canvas.Image
         smooth: false
+        opacity: 0.55
 
         onPaint: {
             var ctx = getContext("2d")
@@ -24,26 +77,10 @@ Item {
             var h = height
             if (w <= 0 || h <= 0) return
 
-            ctx.fillStyle = "#050505"
-            ctx.fillRect(0, 0, w, h)
-
-            var s = staticRoot.cellSize
-            for (var y = 0; y < h; y += s) {
-                for (var x = 0; x < w; x += s) {
-                    var v = 28 + Math.floor(Math.random() * 210)
-                    var a = staticRoot.noiseOpacity * (0.25 + Math.random() * 0.75)
-                    ctx.fillStyle = "rgba(" + v + "," + v + "," + v + "," + a + ")"
-                    ctx.fillRect(x, y, s, s)
-                }
-            }
-
-            var streaks = Math.max(5, Math.round(h / 64))
-            for (var i = 0; i < streaks; i++) {
-                var sy = Math.floor(Math.random() * h)
-                var shade = Math.random() > 0.5 ? 255 : 0
-                var alpha = 0.08 + Math.random() * 0.12
-                ctx.fillStyle = "rgba(" + shade + "," + shade + "," + shade + "," + alpha + ")"
-                ctx.fillRect(0, sy, w, Math.max(1, Math.floor(s / 2)))
+            ctx.clearRect(0, 0, w, h)
+            for (var y = 0; y < h; y += 6) {
+                ctx.fillStyle = "rgba(0,0,0," + (y % 12 === 0 ? "0.24" : "0.10") + ")"
+                ctx.fillRect(0, y, w, 1)
             }
         }
 
@@ -52,21 +89,12 @@ Item {
     }
 
     Timer {
-        interval: 62
+        interval: staticRoot.frameInterval
         repeat: true
         running: staticRoot.running && staticRoot.visible && staticRoot.width > 0 && staticRoot.height > 0
-        onTriggered: noiseCanvas.requestPaint()
-    }
-
-    Repeater {
-        model: Math.ceil(staticRoot.height / 6)
-
-        Rectangle {
-            width: staticRoot.width
-            height: 1
-            y: index * 6
-            color: "#000000"
-            opacity: index % 2 === 0 ? 0.20 : 0.08
+        onTriggered: {
+            staticRoot.frameSeed = (staticRoot.frameSeed * 1664525 + 1013904223) & 0x7fffffff
+            noiseCanvas.requestPaint()
         }
     }
 

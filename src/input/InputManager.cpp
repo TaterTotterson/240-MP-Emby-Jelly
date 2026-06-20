@@ -492,6 +492,15 @@ QString InputManager::mpvKeyForMediaEvent(const QKeyEvent *ke) {
     }
 }
 
+InputManager::Action InputManager::remoteActionForKey(const QKeyEvent *ke) {
+    switch (ke->key()) {
+    case Qt::Key_Select: return Action::Select;
+    case Qt::Key_Back:
+    case Qt::Key_Menu:   return Action::Back;
+    default:             return Action::None;
+    }
+}
+
 // ── Active-device tracking & footer hints ─────────────────────────────────────
 
 bool InputManager::eventFilter(QObject *obj, QEvent *event) {
@@ -501,7 +510,20 @@ bool InputManager::eventFilter(QObject *obj, QEvent *event) {
         return false;
     const auto *ke = static_cast<QKeyEvent *>(event);
 
-    if (type == QEvent::KeyPress && ke->nativeScanCode() != kSyntheticScanCode)
+    const bool synthetic = (ke->nativeScanCode() == kSyntheticScanCode);
+    const Action remoteAction = synthetic ? Action::None : remoteActionForKey(ke);
+    if (remoteAction != Action::None) {
+        setLastInputDevice(QStringLiteral("remote"));
+        if (!ke->isAutoRepeat()) {
+            if (type == QEvent::KeyPress)
+                deliverPress(remoteAction, false);
+            else
+                releaseAction(remoteAction);
+        }
+        return true;
+    }
+
+    if (type == QEvent::KeyPress && !synthetic)
         setLastInputDevice(QStringLiteral("keyboard"));
 
     // Right shift acts as Back so the keyboard works one-handed: reuse the
@@ -632,6 +654,10 @@ void InputManager::updateHints() {
         if (!back.isEmpty())      h["back"]       = back;
         if (!select.isEmpty())    h["select"]     = select;
         if (!playPause.isEmpty()) h["play_pause"] = playPause;
+    } else if (m_lastInputDevice == QStringLiteral("remote")) {
+        h["back"]       = QStringLiteral("[BACK]");
+        h["select"]     = QStringLiteral("[OK]");
+        h["play_pause"] = QStringLiteral("[PLAY]");
     }
 
     if (h != m_hints) {
