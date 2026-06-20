@@ -1,0 +1,70 @@
+local assdraw = require 'mp.assdraw'
+
+local overlay = mp.create_osd_overlay("ass-events")
+local hide_timer = nil
+local DISPLAY_SECONDS = 2.8
+
+local function ass_escape(text)
+    return tostring(text):gsub("\\", "\\\\"):gsub("{", "\\{"):gsub("}", "\\}")
+end
+
+local function hide()
+    if hide_timer then
+        hide_timer:kill()
+        hide_timer = nil
+    end
+    overlay:remove()
+end
+
+local function draw_label(label)
+    if not label or label == "" then return end
+    label = ass_escape(label)
+
+    local ww, wh = mp.get_osd_size()
+    if ww == 0 or wh == 0 then return end
+
+    local margin_x = math.floor(ww * 0.08)
+    local margin_y = math.floor(wh * 0.11)
+    local pad_x = math.floor(ww * 0.018)
+    local pad_y = math.floor(wh * 0.012)
+    local fs = math.max(18, math.floor(wh * 0.065))
+    local box_w = math.min(math.floor(ww * 0.72), math.floor(#label * fs * 0.56 + pad_x * 2))
+    local box_h = math.floor(fs * 1.35 + pad_y * 2)
+
+    local ass = assdraw.ass_new()
+
+    ass:new_event()
+    ass:pos(margin_x, margin_y)
+    ass:append("{\\bord0\\shad0\\1c&H000000&\\1a&H55&}")
+    ass:draw_start()
+    ass:rect_cw(0, 0, box_w, box_h)
+    ass:draw_stop()
+
+    ass:new_event()
+    ass:append(string.format(
+        "{\\an4\\pos(%d,%d)\\fnVCR OSD Mono\\fs%d\\1c&HFFFFFF&\\1a&H00&\\bord0\\shad0}%s",
+        margin_x + pad_x,
+        margin_y + math.floor(box_h / 2),
+        fs,
+        label))
+
+    overlay.res_x = ww
+    overlay.res_y = wh
+    overlay.data = ass.text
+    overlay:update()
+
+    if hide_timer then hide_timer:kill() end
+    hide_timer = mp.add_timeout(DISPLAY_SECONDS, hide)
+end
+
+mp.register_script_message("240mp-ota-channel", draw_label)
+
+mp.register_event("file-loaded", function()
+    local title = mp.get_property("media-title", "")
+    if title ~= "" then
+        draw_label(title)
+    end
+end)
+
+mp.add_key_binding("ESC", "ota-esc", function() mp.command("quit") end)
+mp.add_key_binding("BS", "ota-bs", function() mp.command("quit") end)

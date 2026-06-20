@@ -41,6 +41,10 @@ public:
     Q_INVOKABLE void load_children(const QString &ratingKey);
     Q_INVOKABLE void load_on_deck_for(const QString &ratingKey);
     Q_INVOKABLE void load_next_episode(const QString &currentRatingKey);
+    Q_INVOKABLE void load_live_tv_channels();
+    Q_INVOKABLE void request_live_tv_stream(const QString &channelId,
+                                            const QString &sessionId,
+                                            bool forceTranscode);
 
     Q_INVOKABLE void load_item_detail(const QString &ratingKey);
     Q_INVOKABLE void build_stream_url(const QString &ratingKey, const QString &partKey,
@@ -77,6 +81,10 @@ signals:
     void childrenLoaded(const QVariant &items);
     void inProgressEpisodeLoaded(const QVariant &item);
     void nextEpisodeReady(const QVariant &detail);
+    void liveTvChannelsLoaded(const QVariant &channels);
+    void liveTvStreamReady(const QString &channelId,
+                           const QString &url,
+                           const QString &httpHeaderFields);
 
     void dynamicOptionsReady(const QString &key, const QVariant &options);
     void errorOccurred(const QString &message);

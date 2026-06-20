@@ -11,7 +11,7 @@ If you want to contribute, please start with [CONTRIBUTING.md](CONTRIBUTING.md).
 Think of 240-MP as a **browsing shell** that hands off to **purpose-built tools**.
 
 - The app shell handles browsing, auth, and settings
-- **Modules** are self-contained media integrations (Local Files, Emby/Jellyfin, Ambient Mode, etc...) that the shell discovers and loads at startup.
+- **Modules** are self-contained media integrations (Local Files, Emby/Jellyfin, Over The Air, Ambient Mode, etc...) that the shell discovers and loads at startup.
 - When a user picks something to play, the shell hands off to a dedicated fullscreen tool and resumes when that tool exits. For video, that tool is **mpv**, launched as a subprocess by `MpvController`. mpv is installed separately (`apt install mpv` / `brew install mpv`).  240-MP does not link against libmpv.
 
 The guiding idea: **browse structured content, then hand off to the right tool for the job** rather than bundling everything into one binary.
@@ -49,7 +49,7 @@ The guiding idea: **browse structured content, then hand off to the right tool f
   CMakeLists.txt
 ```
 
-There are three modules today: `local_files`, `emby_jellyfin`, and `ambient_mode`. `emby_jellyfin` is a helpful reference when building something new as it covers a more complex use case (connecting to a local API with auth).
+There are four modules today: `local_files`, `emby_jellyfin`, `ota`, and `ambient_mode`. `emby_jellyfin` is a helpful reference when building something new as it covers a more complex use case (connecting to a local API with auth). The `ota` module is QML-only and reuses the existing Emby/Jellyfin backend for Live TV channel and playback calls.
 
 ## Anatomy of a Module
 

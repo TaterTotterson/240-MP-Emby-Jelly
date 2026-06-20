@@ -87,6 +87,15 @@ sudo systemctl start 240mp
 4. Sign in.
 5. Choose the libraries you want shown on the CRT UI.
 
+## Over The Air Setup
+
+1. Add the HDHomeRun tuner to Emby or Jellyfin Live TV first.
+2. Confirm the server can play Live TV channels.
+3. Sign in to the same server from 240-MP.
+4. Open the Over The Air module.
+
+The OTA module does not scan for HDHomeRun devices directly. It uses Emby/Jellyfin Live TV channel and playback APIs so the server can handle tuner sessions and transcoding.
+
 240-MP supports Emby and Jellyfin only. Plex is not supported.
 
 ## Update An Existing 240-MP Image

@@ -1,5 +1,7 @@
 #include "EmbyJellyfinBackend.h"
 
+#include <algorithm>
+#include <QCollator>
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QDebug>
@@ -385,6 +387,87 @@ QVariantList EmbyJellyfinBackend::formatItems(const QJsonArray &items) const {
     return result;
 }
 
+void EmbyJellyfinBackend::load_live_tv_channels() {
+    if (get_auth_state() != "authed") {
+        emit errorOccurred("NOT SIGNED IN");
+        return;
+    }
+
+    QUrl url = apiUrl("/LiveTv/Channels");
+    QUrlQuery q;
+    q.addQueryItem("UserId", userId());
+    q.addQueryItem("EnableUserData", "false");
+    q.addQueryItem("EnableImages", "false");
+    q.addQueryItem("SortBy", "SortName");
+    q.addQueryItem("SortOrder", "Ascending");
+    url.setQuery(q);
+
+    auto *reply = apiGet(url);
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        reply->deleteLater();
+        const QByteArray bytes = reply->readAll();
+        if (reply->error() != QNetworkReply::NoError) {
+            QString message = "LOAD OTA CHANNELS FAILED: " + reply->errorString();
+            const QString body = abbreviatedNetworkBody(bytes);
+            if (!body.isEmpty())
+                message += " - " + body;
+            emit errorOccurred(message);
+            return;
+        }
+
+        QJsonParseError parseError;
+        const QJsonDocument doc = QJsonDocument::fromJson(bytes, &parseError);
+        if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
+            emit errorOccurred("LOAD OTA CHANNELS FAILED: INVALID SERVER RESPONSE");
+            return;
+        }
+
+        const QJsonArray items = doc.object()["Items"].toArray();
+        QVariantList channels;
+        for (const auto &value : items) {
+            const QJsonObject item = value.toObject();
+            const QString id = item["Id"].toString();
+            if (id.isEmpty())
+                continue;
+
+            const QString number = item["Number"].toString();
+            const QString name = item["Name"].toString();
+            QString display = number;
+            if (!name.isEmpty()) {
+                display = display.isEmpty()
+                    ? name
+                    : QStringLiteral("%1  %2").arg(display, name);
+            }
+
+            channels.append(QVariantMap{
+                {"id", id},
+                {"number", number},
+                {"name", name.toUpper()},
+                {"title", display.toUpper()},
+                {"isHd", item["IsHD"].toBool(false)}
+            });
+        }
+
+        QCollator collator;
+        collator.setNumericMode(true);
+        collator.setCaseSensitivity(Qt::CaseInsensitive);
+        std::sort(channels.begin(), channels.end(),
+                  [&collator](const QVariant &left, const QVariant &right) {
+            const QVariantMap a = left.toMap();
+            const QVariantMap b = right.toMap();
+            const QString aKey = a["number"].toString().isEmpty()
+                ? a["title"].toString()
+                : a["number"].toString();
+            const QString bKey = b["number"].toString().isEmpty()
+                ? b["title"].toString()
+                : b["number"].toString();
+            return collator.compare(aKey, bKey) < 0;
+        });
+
+        emit liveTvChannelsLoaded(channels);
+    });
+}
+
 void EmbyJellyfinBackend::load_libraries() {
     if (get_auth_state() != "authed") {
         emit errorOccurred("NOT SIGNED IN");
@@ -768,6 +851,10 @@ QString EmbyJellyfinBackend::playbackUrlFromInfo(const QJsonObject &info,
     if (!transcodingUrl.isEmpty() && (forceTranscode || !directPlay))
         return withAccessToken(absoluteMediaUrl(transcodingUrl));
 
+    const QString directStreamUrl = mediaSource["DirectStreamUrl"].toString();
+    if (!forceTranscode && !directStreamUrl.isEmpty())
+        return withAccessToken(absoluteMediaUrl(directStreamUrl));
+
     if (forceTranscode) {
         qWarning("[EmbyJellyfinBackend] PlaybackInfo did not include TranscodingUrl; using legacy HLS URL fallback");
         return streamUrlFor(ratingKey, mediaSourceId, playSessionId,
@@ -960,6 +1047,64 @@ void EmbyJellyfinBackend::request_transcode(const QString &ratingKey,
                                             int offsetMs) {
     requestPlaybackInfo(ratingKey, partKey, sessionId,
                         audioId, subtitleId, offsetMs, true);
+}
+
+void EmbyJellyfinBackend::request_live_tv_stream(const QString &channelId,
+                                                 const QString &sessionId,
+                                                 bool forceTranscode) {
+    if (channelId.isEmpty()) {
+        emit errorOccurred("OTA PLAYBACK FAILED: EMPTY CHANNEL ID");
+        return;
+    }
+
+    QJsonObject payload = playbackInfoPayload({}, {}, {}, 0, forceTranscode);
+    auto *reply = apiPostJson(apiUrl("/Items/" + channelId + "/PlaybackInfo"),
+                              QJsonDocument(payload).toJson(QJsonDocument::Compact));
+
+    connect(reply, &QNetworkReply::finished, this,
+            [this, reply, channelId, sessionId, forceTranscode]() {
+        reply->deleteLater();
+        const QByteArray bytes = reply->readAll();
+        if (reply->error() != QNetworkReply::NoError) {
+            QString message = "OTA PLAYBACK FAILED: " + reply->errorString();
+            const QString body = abbreviatedNetworkBody(bytes);
+            if (!body.isEmpty())
+                message += " - " + body;
+            emit errorOccurred(message);
+            return;
+        }
+
+        QJsonParseError parseError;
+        const QJsonDocument doc = QJsonDocument::fromJson(bytes, &parseError);
+        if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
+            emit errorOccurred("OTA PLAYBACK FAILED: INVALID SERVER RESPONSE");
+            return;
+        }
+
+        const QJsonObject info = doc.object();
+        const QString errorCode = info["ErrorCode"].toString();
+        if (!errorCode.isEmpty()) {
+            emit errorOccurred("OTA PLAYBACK FAILED: " + errorCode);
+            return;
+        }
+
+        QJsonObject mediaSource;
+        const QString url = playbackUrlFromInfo(info, channelId, {}, sessionId,
+                                                {}, {}, forceTranscode, &mediaSource);
+        if (url.isEmpty()) {
+            emit errorOccurred("OTA PLAYBACK FAILED: NO PLAYABLE STREAM");
+            return;
+        }
+
+        const QString method = mediaSource["TranscodingUrl"].toString().isEmpty()
+            ? QStringLiteral("direct")
+            : QStringLiteral("transcode");
+        qInfo("[EmbyJellyfinBackend] Live TV selected %s media source %s",
+              qPrintable(method),
+              qPrintable(mediaSource["Id"].toString()));
+
+        emit liveTvStreamReady(channelId, url, httpHeaderFieldsFor(mediaSource));
+    });
 }
 
 void EmbyJellyfinBackend::requestPlaybackInfo(const QString &ratingKey,

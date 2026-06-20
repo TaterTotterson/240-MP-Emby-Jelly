@@ -1,0 +1,14 @@
+{
+  "id": "com.240mp.ota",
+  "name": "Over The Air",
+  "icon": "assets/images/logo.svg",
+  "entry_point_qml": "views/Root.qml",
+  "settings": [
+    {
+      "key": "enabled",
+      "label": "ENABLED",
+      "type": "toggle",
+      "default": "ON"
+    }
+  ]
+}

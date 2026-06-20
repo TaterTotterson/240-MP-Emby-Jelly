@@ -51,10 +51,12 @@ public:
                                   const QString &httpHeaderFields = {},
                                   bool muteAudio = false,
                                   const QString &oscMode = {},
-                                  bool shuffle = false);
+                                  bool shuffle = false,
+                                  const QString &displayTitle = {});
     Q_INVOKABLE void stop();
     Q_INVOKABLE void seekTo(int positionMs);
     Q_INVOKABLE void sendKey(const QString &key);
+    Q_INVOKABLE void sendScriptMessage(const QString &message, const QString &arg = {});
     Q_INVOKABLE void setPaused(bool paused);
     Q_INVOKABLE void togglePause();
 

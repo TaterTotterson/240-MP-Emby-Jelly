@@ -107,7 +107,8 @@ void MpvController::loadAndPlay(const QString &url, float startSeconds,
                                  const QStringList &subFiles, bool loop,
                                  int playlistStart, float transcodeOffsetSec,
                                  const QString &httpHeaderFields, bool muteAudio,
-                                 const QString &oscMode, bool shuffle) {
+                                 const QString &oscMode, bool shuffle,
+                                 const QString &displayTitle) {
     if (m_process) {
         m_process->disconnect();
         if (m_process->state() != QProcess::NotRunning) {
@@ -148,7 +149,9 @@ void MpvController::loadAndPlay(const QString &url, float startSeconds,
         return;
     }
 
-    const QString oscScriptName = (oscMode == "ambient") ? "ambient-osc.lua" : "mpv-osc.lua";
+    const QString oscScriptName = (oscMode == "ambient") ? "ambient-osc.lua"
+        : (oscMode == "ota") ? "ota-osc.lua"
+        : "mpv-osc.lua";
     const QString oscScript = m_appRoot + "/scripts/" + oscScriptName;
     const bool hasOscScript = QFile::exists(oscScript);
 
@@ -181,6 +184,8 @@ void MpvController::loadAndPlay(const QString &url, float startSeconds,
 
     if (playlistStart >= 0)
         args << QString("--playlist-start=%1").arg(playlistStart);
+    if (!displayTitle.isEmpty())
+        args << QString("--force-media-title=%1").arg(displayTitle);
     if (startSeconds > 0.5f)
         args << QString("--start=%1").arg(double(startSeconds), 0, 'f', 3);
     if (audioTrack > 0)
@@ -344,6 +349,16 @@ void MpvController::seekTo(int positionMs) {
 
 void MpvController::sendKey(const QString &key) {
     sendCommand({"keypress", key});
+}
+
+void MpvController::sendScriptMessage(const QString &message, const QString &arg) {
+    if (message.isEmpty())
+        return;
+
+    QJsonArray command{QStringLiteral("script-message"), message};
+    if (!arg.isEmpty())
+        command.append(arg);
+    sendCommand(command);
 }
 
 void MpvController::setPaused(bool paused) {
