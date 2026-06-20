@@ -70,34 +70,6 @@ Watch on YouTube: https://youtu.be/r-gylGDoELY
 - Raspberry Pi 3/3B+ can work with lower playback headroom; see [BUILDING.md](BUILDING.md#video-decode-tuning-mpv_video_args)
 - Raspberry Pi 5 is best treated as HDMI-first unless your composite hardware path is known-good
 
-## FAQs
-
-- Why didn't you use Kodi/LibreELEC/OSMC?
-    - I've used all of those distros and they are all excellent but I also like making things and wanted something simpler without as many options.  Something that felt like a VCR from my youth.
-- Should I use 240-MP instead of Kodi/LibreELEC/OSMC?
-    - No.
-    - All of those distros are amazing, feature rich, work across a ton of devices and have awesome supportive teams behind them.
-    - I on the other hand am just one person making nostalgic things for my own niche use cases.  If those use cases match with what you're looking for, then 240-MP is a bunch of fun and I'd be happy for you to try it.  Otherwise, the well known distros are spectacular and you should likely open those doors instead.
-- Will this work on other Raspberry Pi models? (like the 5, 2 zero, etc...)
-    - Sorry, I can't say for sure as I've only tested on the 4b, 3b+ and 3b and don't have plans to test on other devices at this time.
-- Where does the name "240-MP" come from?
-    - 240 has a double meaning referring to the longest [VHS tape length](https://en.wikipedia.org/wiki/VHS#Tape_lengths) and my primary display target for it of [CRT TVs](https://consolemods.org/wiki/CRT:What_is_240p%3F).
-    - MP also has a double meaning of "Media Player" and a play on the "SP/LP/EP/SLP" terminology that was used to refer to the recording quality for VHS recordings.
-- Does the 240 in the name mean that it outputs at 240p resolution?
-    - The output resolution for the menu and video playback when using it on a CRT is 480i/576i (depending on your config).
-- Does 240-MP work over HDMI on a modern television too?
-    - Yes! The UI was built to scale on modern televisions over HDMI as well.
-    - Please make sure you use the config.txt I provide for HDMI and it will output at the proper resolution for a modern tv.
-
-## Credits & Acknowledgments 
-
-- This fork is based on [anthonycaccese/240-MP](https://github.com/anthonycaccese/240-MP).
-- The `VCR OSD Mono` font was created by Riciery Santos Leal (a.k.a. mrmanet) https://www.dafont.com/vcr-osd-mono.font
-- Because this is a hobby project (and a fairly niche use case), I am using [Claude Code](https://www.anthropic.com/product/claude-code) to build a large part of the backend C++ code and structure the modules.  If you have concerns with that, I am glad to talk through it.  Also, please feel free to fork this repo, update any aspects and tailor things to your own use case; that's why the source is fully open and available.
-- Thank you to Emby and Jellyfin for local media-server APIs that make custom clients possible
-- Thank you to [the MPV team](https://mpv.io/) for a simple, extensible and cross platform media player
-- And thank you to the [Raspberry Pi Foundation](https://www.raspberrypi.org/) for helping me fill a drawer with SBCs to tinker with and inspire fun ideas like this project.
-
 ## License
 
 This project is licensed under the GNU General Public License v3.0. See [LICENSE](LICENSE) for the full text.
