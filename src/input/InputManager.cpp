@@ -597,7 +597,14 @@ void InputManager::onRepeatTick() {
 }
 
 bool InputManager::windowActive() const {
+#ifdef Q_OS_LINUX
+    // EGLFS can report the kiosk window as inactive even while it owns the only
+    // screen. Keep routing remote/gamepad actions through QML on Pi; Player
+    // views forward those same keys to mpv during playback.
+    return m_window != nullptr;
+#else
     return m_window && m_window->isActive();
+#endif
 }
 
 // Post to the root QQuickWindow, not QGuiApplication::focusWindow(): Qt Quick
