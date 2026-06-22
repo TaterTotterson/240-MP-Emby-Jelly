@@ -10,6 +10,7 @@ This fork is focused on one appliance-style setup:
 - Boot screen and automatic launch straight into 240-MP
 - Argon IR remote support through a GPIO IR receiver on GPIO23
 - Local Emby/Jellyfin browsing and playback
+- Emby/Jellyfin music playback through a Mixtapes cassette-deck module
 - HDHomeRun Over The Air playback
 - NTSC and PAL composite image builds
 - No Plex support
@@ -27,6 +28,13 @@ The easiest way to use it is to download the ready-to-flash NTSC or PAL `.img.xz
 - Audio and subtitle track selection
 - Auto direct play with AV1-to-H.264 fallback
 - Forced transcode quality options
+
+### Mixtapes
+- Streams music from Emby/Jellyfin music libraries
+- Shows each album as its own tape for easier browsing
+- Cassette-deck playback screen
+- Lightweight old-school VU meter visuals
+- Album track list browsing with play/pause and next/previous track controls
 
 ### Over The Air
 - Connects directly to HDHomeRun tuners

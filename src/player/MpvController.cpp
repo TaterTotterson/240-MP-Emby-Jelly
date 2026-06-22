@@ -108,7 +108,8 @@ void MpvController::loadAndPlay(const QString &url, float startSeconds,
                                  int playlistStart, float transcodeOffsetSec,
                                  const QString &httpHeaderFields, bool muteAudio,
                                  const QString &oscMode, bool shuffle,
-                                 const QString &displayTitle) {
+                                 const QString &displayTitle,
+                                 bool audioOnly) {
     if (m_process) {
         m_process->disconnect();
         if (m_process->state() != QProcess::NotRunning) {
@@ -153,7 +154,7 @@ void MpvController::loadAndPlay(const QString &url, float startSeconds,
     const QString oscScriptName = isOtaMode ? "ota-osc.lua"
         : "mpv-osc.lua";
     const QString oscScript = m_appRoot + "/scripts/" + oscScriptName;
-    const bool hasOscScript = QFile::exists(oscScript);
+    const bool hasOscScript = !audioOnly && QFile::exists(oscScript);
 
     // Stamp the log file so each session is identifiable when tailing over SSH.
     {
@@ -183,7 +184,7 @@ void MpvController::loadAndPlay(const QString &url, float startSeconds,
         args << QString("--script=%1").arg(mediaKeysScript);
 
     const QString vcrOsdScript = m_appRoot + "/scripts/vcr-osd.lua";
-    if (!isOtaMode && QFile::exists(vcrOsdScript))
+    if (!audioOnly && !isOtaMode && QFile::exists(vcrOsdScript))
         args << QString("--script=%1").arg(vcrOsdScript);
 
     if (playlistStart >= 0)
@@ -243,6 +244,26 @@ void MpvController::loadAndPlay(const QString &url, float startSeconds,
     m_headlessMode = detectHeadlessMode();
     if (!muteAudio)
         appendAudioArgs(args);
+
+    if (audioOnly) {
+        QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+        env.insert("APP_ROOT", m_appRoot);
+#ifdef Q_OS_LINUX
+        const QString fcConf = writeFontconfigOverride(m_appRoot + "/assets/fonts");
+        if (!fcConf.isEmpty())
+            env.insert("FONTCONFIG_FILE", fcConf);
+#endif
+        m_process->setProcessEnvironment(env);
+        args << QString("--input-conf=%1").arg(m_inputConfPath)
+             << "--no-input-terminal"
+             << "--no-video"
+             << "--audio-display=no"
+             << "--force-window=no";
+        qDebug("[MpvController] audio launch: mpv %s", qPrintable(args.join(" ")));
+        m_process->start(bin, args);
+        m_connectTimer->start();
+        return;
+    }
 
     if (m_headlessMode) {
         {
@@ -341,6 +362,15 @@ void MpvController::loadAndPlay(const QString &url, float startSeconds,
         m_process->start(bin, args);
         m_connectTimer->start();
     }
+}
+
+void MpvController::loadAudioAndPlay(const QString &url,
+                                     float startSeconds,
+                                     const QString &httpHeaderFields,
+                                     const QString &displayTitle) {
+    loadAndPlay(url, startSeconds, 0, -1, {}, false, -1, 0.0f,
+                httpHeaderFields, false, QStringLiteral("audio"),
+                false, displayTitle, true);
 }
 
 void MpvController::stop() {

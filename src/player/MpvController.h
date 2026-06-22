@@ -52,7 +52,12 @@ public:
                                   bool muteAudio = false,
                                   const QString &oscMode = {},
                                   bool shuffle = false,
-                                  const QString &displayTitle = {});
+                                  const QString &displayTitle = {},
+                                  bool audioOnly = false);
+    Q_INVOKABLE void loadAudioAndPlay(const QString &url,
+                                      float startSeconds = 0.0f,
+                                      const QString &httpHeaderFields = {},
+                                      const QString &displayTitle = {});
     Q_INVOKABLE void stop();
     Q_INVOKABLE void seekTo(int positionMs);
     Q_INVOKABLE void sendKey(const QString &key);

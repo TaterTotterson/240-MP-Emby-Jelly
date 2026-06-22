@@ -27,6 +27,9 @@ public:
     Q_INVOKABLE void logout();
 
     Q_INVOKABLE void load_libraries();
+    Q_INVOKABLE void load_music_libraries();
+    Q_INVOKABLE void load_music_albums(const QString &sectionId);
+    Q_INVOKABLE void load_music_tracks(const QString &sectionId);
     Q_INVOKABLE void load_continue_watching();
     Q_INVOKABLE void load_section_hubs(const QString &sectionId);
     Q_INVOKABLE void load_items_for_hub(const QString &hubKey);
@@ -50,6 +53,8 @@ public:
     Q_INVOKABLE void load_item_detail(const QString &ratingKey);
     Q_INVOKABLE void build_stream_url(const QString &ratingKey, const QString &partKey,
                                       const QString &sessionId);
+    Q_INVOKABLE void build_audio_stream_url(const QString &ratingKey,
+                                            const QString &mediaSourceId);
     Q_INVOKABLE void request_transcode(const QString &ratingKey, const QString &partKey,
                                        const QString &sessionId,
                                        const QString &audioId, const QString &subtitleId,
@@ -69,6 +74,9 @@ signals:
     void authStateChanged();
 
     void librariesLoaded(const QVariant &libraries);
+    void musicLibrariesLoaded(const QVariant &libraries);
+    void musicAlbumsLoaded(const QVariant &albums);
+    void musicTracksLoaded(const QVariant &items);
     void continueWatchingLoaded(const QVariant &items);
     void hubsLoaded(const QVariant &hubs);
     void itemsLoaded(const QVariant &items);
@@ -79,6 +87,9 @@ signals:
 
     void itemLoaded(const QVariant &detail);
     void streamUrlReady(const QString &url, const QString &httpHeaderFields);
+    void audioStreamUrlReady(const QString &itemId,
+                             const QString &url,
+                             const QString &httpHeaderFields);
     void childrenLoaded(const QVariant &items);
     void inProgressEpisodeLoaded(const QVariant &item);
     void nextEpisodeReady(const QVariant &detail);
@@ -151,6 +162,8 @@ private:
                            int streamIndex, const QString &codec) const;
 
     QVariantMap formatItem(const QJsonObject &item) const;
+    QVariantMap formatMusicAlbum(const QJsonObject &item) const;
+    QVariantMap formatMusicTrack(const QJsonObject &item) const;
     QVariantMap buildItemDetail(const QJsonObject &item) const;
     QVariantList formatItems(const QJsonArray &items) const;
     void fetchServerInfoThenFinishLogin(QJsonObject auth);

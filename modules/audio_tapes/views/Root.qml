@@ -1,0 +1,646 @@
+import QtQuick
+import Components
+
+FocusScope {
+    id: tapeRoot
+
+    signal goBack()
+
+    property var navParams: ({})
+    property string moduleId: "com.240mp.audio_tapes"
+    property var libraries: []
+    property var albums: []
+    property var tracks: []
+    property int currentLibraryIndex: 0
+    property int currentAlbumIndex: 0
+    property int trackIndex: 0
+    property string mode: "loading"
+    property string statusText: "LOADING TAPES..."
+    property string currentLibraryTitle: "MIXTAPES"
+    property string currentAlbumTitle: "MIXTAPE"
+    property string currentAlbumArtist: "UNKNOWN ARTIST"
+    property bool skippedLibraryPicker: false
+    property string pendingItemId: ""
+    property bool playing: false
+    property bool paused: false
+    property int visualTick: 0
+
+    focus: true
+
+    function currentTrack() {
+        if (trackIndex < 0 || trackIndex >= tracks.length) return ({})
+        return tracks[trackIndex] || ({})
+    }
+
+    function currentTitle() {
+        var track = currentTrack()
+        return track.title || "NO TAPE"
+    }
+
+    function currentArtist() {
+        var track = currentTrack()
+        return track.artist || currentAlbumArtist || currentLibraryTitle || "UNKNOWN ARTIST"
+    }
+
+    function currentAlbum() {
+        var track = currentTrack()
+        return track.album || currentAlbumTitle || "MIXTAPE"
+    }
+
+    function formatTime(ms) {
+        var total = Math.max(0, Math.floor((ms || 0) / 1000))
+        var m = Math.floor(total / 60)
+        var s = total % 60
+        return m + ":" + (s < 10 ? "0" + s : "" + s)
+    }
+
+    function loadLibraries() {
+        if (embyBackend.get_auth_state() !== "authed") {
+            mode = "message"
+            statusText = "SIGN IN FROM VIDEO ON DEMAND"
+            return
+        }
+
+        mode = "loading"
+        statusText = "LOADING TAPES..."
+        skippedLibraryPicker = false
+        embyBackend.load_music_libraries()
+    }
+
+    function selectLibrary(index) {
+        if (index < 0 || index >= libraries.length) return
+        currentLibraryIndex = index
+        var library = libraries[index] || ({})
+        currentLibraryTitle = library.title || "MIXTAPE"
+        currentAlbumIndex = 0
+        albums = []
+        tracks = []
+        mode = "loading"
+        statusText = "SCANNING TAPES..."
+        embyBackend.load_music_albums(library.sectionId || library.key || "")
+    }
+
+    function selectAlbum(index) {
+        if (index < 0 || index >= albums.length) return
+        currentAlbumIndex = index
+        albumList.currentIndex = index
+        var album = albums[index] || ({})
+        currentAlbumTitle = album.title || "MIXTAPE"
+        currentAlbumArtist = album.artist || "UNKNOWN ARTIST"
+        tracks = []
+        mode = "loading"
+        statusText = "LOADING " + currentAlbumTitle
+        embyBackend.load_music_tracks(album.ratingKey || album.key || "")
+    }
+
+    function playTrack(index) {
+        if (index < 0 || index >= tracks.length) return
+        trackIndex = index
+        trackList.currentIndex = index
+        var track = currentTrack()
+        pendingItemId = track.ratingKey || ""
+        if (pendingItemId === "") return
+        statusText = "THREADING TAPE..."
+        embyBackend.build_audio_stream_url(pendingItemId, track.partKey || "")
+    }
+
+    function stopDeck(returnToTracks) {
+        if (mpvController.running)
+            mpvController.stop()
+        playing = false
+        paused = false
+        pendingItemId = ""
+        if (returnToTracks)
+            mode = "tracks"
+    }
+
+    function nextTrack() {
+        if (tracks.length === 0) return
+        playTrack((trackIndex + 1) % tracks.length)
+    }
+
+    function previousTrack() {
+        if (tracks.length === 0) return
+        playTrack((trackIndex + tracks.length - 1) % tracks.length)
+    }
+
+    Keys.onPressed: function(event) {
+        if (event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace || event.key === Qt.Key_Back) {
+            if (mode === "deck") {
+                stopDeck(true)
+            } else if (mode === "tracks") {
+                mode = "albums"
+                albumList.currentIndex = currentAlbumIndex
+            } else if (mode === "albums") {
+                if (skippedLibraryPicker)
+                    goBack()
+                else
+                    mode = "libraries"
+            } else {
+                goBack()
+            }
+            event.accepted = true
+            return
+        }
+
+        if (mode === "libraries") {
+            if (event.key === Qt.Key_Up) {
+                libraryList.currentIndex = Math.max(0, libraryList.currentIndex - 1)
+                event.accepted = true
+            } else if (event.key === Qt.Key_Down) {
+                libraryList.currentIndex = Math.min(libraryList.count - 1, libraryList.currentIndex + 1)
+                event.accepted = true
+            } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                selectLibrary(libraryList.currentIndex)
+                event.accepted = true
+            }
+            return
+        }
+
+        if (mode === "albums") {
+            if (event.key === Qt.Key_Up) {
+                albumList.currentIndex = Math.max(0, albumList.currentIndex - 1)
+                event.accepted = true
+            } else if (event.key === Qt.Key_Down) {
+                albumList.currentIndex = Math.min(albumList.count - 1, albumList.currentIndex + 1)
+                event.accepted = true
+            } else if (event.key === Qt.Key_Left) {
+                if (skippedLibraryPicker)
+                    goBack()
+                else
+                    mode = "libraries"
+                event.accepted = true
+            } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                selectAlbum(albumList.currentIndex)
+                event.accepted = true
+            }
+            return
+        }
+
+        if (mode === "tracks") {
+            if (event.key === Qt.Key_Up) {
+                trackList.currentIndex = Math.max(0, trackList.currentIndex - 1)
+                event.accepted = true
+            } else if (event.key === Qt.Key_Down) {
+                trackList.currentIndex = Math.min(trackList.count - 1, trackList.currentIndex + 1)
+                event.accepted = true
+            } else if (event.key === Qt.Key_Left) {
+                mode = "albums"
+                albumList.currentIndex = currentAlbumIndex
+                event.accepted = true
+            } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
+                playTrack(trackList.currentIndex)
+                event.accepted = true
+            }
+            return
+        }
+
+        if (mode === "deck") {
+            if (event.key === Qt.Key_Left) {
+                previousTrack()
+                event.accepted = true
+            } else if (event.key === Qt.Key_Right) {
+                nextTrack()
+                event.accepted = true
+            } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space || event.key === Qt.Key_Menu) {
+                mpvController.togglePause()
+                event.accepted = true
+            }
+        }
+    }
+
+    Component.onCompleted: loadLibraries()
+
+    Component.onDestruction: {
+        if (mpvController.running)
+            mpvController.stop()
+    }
+
+    Connections {
+        target: embyBackend
+
+        function onMusicLibrariesLoaded(items) {
+            libraries = items || []
+            if (libraries.length === 0) {
+                mode = "message"
+                statusText = "NO MUSIC LIBRARIES FOUND"
+                return
+            }
+            if (libraries.length === 1) {
+                skippedLibraryPicker = true
+                selectLibrary(0)
+                return
+            }
+            mode = "libraries"
+            libraryList.currentIndex = Math.min(currentLibraryIndex, libraries.length - 1)
+        }
+
+        function onMusicAlbumsLoaded(items) {
+            albums = items || []
+            if (albums.length === 0) {
+                mode = "message"
+                statusText = "NO ALBUMS FOUND"
+                return
+            }
+            mode = "albums"
+            currentAlbumIndex = Math.min(currentAlbumIndex, albums.length - 1)
+            albumList.currentIndex = currentAlbumIndex
+        }
+
+        function onMusicTracksLoaded(items) {
+            tracks = items || []
+            if (tracks.length === 0) {
+                mode = "message"
+                statusText = "NO TRACKS FOUND"
+                return
+            }
+            mode = "tracks"
+            trackIndex = 0
+            trackList.currentIndex = 0
+        }
+
+        function onAudioStreamUrlReady(itemId, url, httpHeaderFields) {
+            if (itemId !== pendingItemId) return
+            var track = currentTrack()
+            mode = "deck"
+            playing = true
+            paused = false
+            mpvController.loadAudioAndPlay(url, 0.0, httpHeaderFields || "", track.title || "MIXTAPE")
+        }
+
+        function onErrorOccurred(message) {
+            if (mode === "loading" || mode === "deck") {
+                playing = false
+                mode = "message"
+                statusText = message || "MIXTAPE ERROR"
+            }
+        }
+    }
+
+    Connections {
+        target: mpvController
+
+        function onPausedChanged(value) {
+            tapeRoot.paused = value
+        }
+
+        function onPlaybackFinishedNaturally(finalPositionMs, finalDurationMs) {
+            if (mode === "deck")
+                nextTrack()
+        }
+
+        function onPlaybackFinished(finalPositionMs, finalDurationMs) {
+            if (mode === "deck" && !pendingItemId) {
+                playing = false
+                mode = "tracks"
+            }
+        }
+
+        function onPlaybackFailed() {
+            if (mode !== "deck") return
+            playing = false
+            mode = "message"
+            statusText = "TAPE JAMMED"
+        }
+    }
+
+    Timer {
+        interval: 80
+        running: mode === "deck" && playing && !paused
+        repeat: true
+        onTriggered: visualTick++
+    }
+
+    StaticBackground {
+        anchors.fill: parent
+        visible: root.staticBackgroundEnabled
+        running: visible && mode !== "deck"
+    }
+
+    Rectangle {
+        anchors.fill: parent
+        color: root.staticBackgroundEnabled && mode !== "deck" ? "transparent" : root.surfaceColor
+    }
+
+    AppBar {
+        title: mode === "deck" ? "TAPE DECK" : "MIXTAPES"
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.topMargin: root.sh * 0.125
+        anchors.leftMargin: root.sw * 0.125
+    }
+
+    Text {
+        visible: mode === "loading" || mode === "message"
+        text: statusText
+        color: root.primaryColor
+        font.family: root.globalFont
+        font.capitalization: Font.AllUppercase
+        anchors.centerIn: parent
+        horizontalAlignment: Text.AlignHCenter
+        width: root.sw * 0.78
+        wrapMode: Text.WordWrap
+        font.pixelSize: root.sh * 0.045
+    }
+
+    ListView {
+        id: libraryList
+        visible: mode === "libraries"
+        model: tapeRoot.libraries
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.topMargin: root.sh * 0.25
+        anchors.leftMargin: root.sw * 0.115625
+        width: root.sw * 0.76875
+        height: root.sh * 0.525
+        clip: true
+        focus: visible
+
+        delegate: Item {
+            width: libraryList.width
+            height: root.sh * 0.065
+
+            Rectangle {
+                anchors.fill: tapeText
+                color: root.accentColor
+                visible: libraryList.currentIndex === index
+            }
+
+            Text {
+                id: tapeText
+                text: "LIBRARY " + (index + 1) + "  " + modelData.title
+                color: libraryList.currentIndex === index ? root.surfaceColor : root.primaryColor
+                font.family: root.globalFont
+                font.capitalization: Font.AllUppercase
+                anchors.verticalCenter: parent.verticalCenter
+                width: parent.width
+                elide: Text.ElideRight
+                leftPadding: root.sw * 0.009375
+                rightPadding: root.sw * 0.009375
+                font.pixelSize: root.sh * 0.05
+            }
+        }
+    }
+
+    ListView {
+        id: albumList
+        visible: mode === "albums"
+        model: tapeRoot.albums
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.topMargin: root.sh * 0.22
+        anchors.leftMargin: root.sw * 0.09
+        width: root.sw * 0.82
+        height: root.sh * 0.62
+        clip: true
+        focus: visible
+
+        header: Text {
+            width: albumList.width
+            height: root.sh * 0.065
+            text: currentLibraryTitle
+            color: root.accentColor
+            font.family: root.globalFont
+            font.capitalization: Font.AllUppercase
+            font.pixelSize: root.sh * 0.045
+        }
+
+        delegate: Item {
+            width: albumList.width
+            height: root.sh * 0.064
+
+            Rectangle {
+                anchors.fill: albumTitle
+                color: root.accentColor
+                visible: albumList.currentIndex === index
+            }
+
+            Text {
+                id: albumTitle
+                text: "TAPE " + (index + 1 < 10 ? "0" : "") + (index + 1) + "  " + modelData.title
+                color: albumList.currentIndex === index ? root.surfaceColor : root.primaryColor
+                font.family: root.globalFont
+                font.capitalization: Font.AllUppercase
+                anchors.left: parent.left
+                anchors.verticalCenter: parent.verticalCenter
+                width: parent.width * 0.62
+                elide: Text.ElideRight
+                leftPadding: root.sw * 0.009375
+                rightPadding: root.sw * 0.009375
+                font.pixelSize: root.sh * 0.041
+            }
+
+            Text {
+                text: modelData.artist || ""
+                color: root.secondaryColor
+                font.family: root.globalFont
+                font.capitalization: Font.AllUppercase
+                anchors.left: albumTitle.right
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.leftMargin: root.sw * 0.012
+                horizontalAlignment: Text.AlignRight
+                elide: Text.ElideRight
+                font.pixelSize: root.sh * 0.031
+            }
+        }
+    }
+
+    ListView {
+        id: trackList
+        visible: mode === "tracks"
+        model: tapeRoot.tracks
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.topMargin: root.sh * 0.22
+        anchors.leftMargin: root.sw * 0.09
+        width: root.sw * 0.82
+        height: root.sh * 0.62
+        clip: true
+        focus: visible
+
+        header: Text {
+            width: trackList.width
+            height: root.sh * 0.065
+            text: currentAlbumTitle + " / " + currentAlbumArtist
+            color: root.accentColor
+            font.family: root.globalFont
+            font.capitalization: Font.AllUppercase
+            elide: Text.ElideRight
+            font.pixelSize: root.sh * 0.045
+        }
+
+        delegate: Item {
+            width: trackList.width
+            height: root.sh * 0.058
+
+            Rectangle {
+                anchors.fill: trackTitle
+                color: root.accentColor
+                visible: trackList.currentIndex === index
+            }
+
+            Text {
+                id: trackTitle
+                text: (index + 1 < 10 ? "0" : "") + (index + 1) + "  " + modelData.title
+                color: trackList.currentIndex === index ? root.surfaceColor : root.primaryColor
+                font.family: root.globalFont
+                font.capitalization: Font.AllUppercase
+                anchors.left: parent.left
+                anchors.verticalCenter: parent.verticalCenter
+                width: parent.width * 0.72
+                elide: Text.ElideRight
+                leftPadding: root.sw * 0.009375
+                rightPadding: root.sw * 0.009375
+                font.pixelSize: root.sh * 0.041
+            }
+
+            Text {
+                text: modelData.durationDisplay || ""
+                color: root.secondaryColor
+                font.family: root.globalFont
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                font.pixelSize: root.sh * 0.033
+            }
+        }
+    }
+
+    Item {
+        visible: mode === "deck"
+        anchors.fill: parent
+
+        Rectangle {
+            id: cassette
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.top: parent.top
+            anchors.topMargin: root.sh * 0.21
+            width: root.sw * 0.72
+            height: root.sh * 0.38
+            color: root.currentTheme === "Off Air" ? "#161616" : root.surfaceColor
+            border.color: root.primaryColor
+            border.width: 3
+            radius: 4
+
+            Rectangle {
+                anchors.top: parent.top
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.topMargin: root.sh * 0.035
+                anchors.leftMargin: root.sw * 0.045
+                anchors.rightMargin: root.sw * 0.045
+                height: root.sh * 0.085
+                color: root.accentColor
+
+                Text {
+                    text: currentTitle()
+                    color: root.surfaceColor
+                    font.family: root.globalFont
+                    font.capitalization: Font.AllUppercase
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.leftMargin: root.sw * 0.012
+                    anchors.rightMargin: root.sw * 0.012
+                    elide: Text.ElideRight
+                    font.pixelSize: root.sh * 0.042
+                }
+            }
+
+            Rectangle {
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.top: parent.top
+                anchors.topMargin: root.sh * 0.16
+                width: root.sw * 0.42
+                height: root.sh * 0.10
+                color: "black"
+                border.color: root.secondaryColor
+                border.width: 2
+
+                Text {
+                    text: paused ? "PAUSE" : "PLAY"
+                    color: root.primaryColor
+                    font.family: root.globalFont
+                    anchors.centerIn: parent
+                    font.pixelSize: root.sh * 0.045
+                }
+            }
+
+            Repeater {
+                model: 2
+                Rectangle {
+                    width: root.sh * 0.13
+                    height: width
+                    radius: width / 2
+                    color: "black"
+                    border.color: root.primaryColor
+                    border.width: 3
+                    x: index === 0 ? cassette.width * 0.18 : cassette.width * 0.70
+                    y: cassette.height * 0.52
+
+                    Rectangle {
+                        anchors.centerIn: parent
+                        width: parent.width * 0.32
+                        height: width
+                        radius: width / 2
+                        color: root.accentColor
+                    }
+
+                    Text {
+                        text: paused ? "II" : (visualTick + index) % 2 === 0 ? "/" : "\\"
+                        color: root.secondaryColor
+                        font.family: root.globalFont
+                        anchors.centerIn: parent
+                        font.pixelSize: root.sh * 0.05
+                    }
+                }
+            }
+        }
+
+        Text {
+            anchors.top: cassette.bottom
+            anchors.left: cassette.left
+            anchors.right: cassette.right
+            anchors.topMargin: root.sh * 0.035
+            text: currentArtist() + " / " + currentAlbum()
+            color: root.secondaryColor
+            font.family: root.globalFont
+            font.capitalization: Font.AllUppercase
+            elide: Text.ElideRight
+            horizontalAlignment: Text.AlignHCenter
+            font.pixelSize: root.sh * 0.033
+        }
+
+        Text {
+            anchors.top: cassette.bottom
+            anchors.right: cassette.right
+            anchors.topMargin: root.sh * 0.09
+            text: formatTime(mpvController.position) + " / " + (currentTrack().durationDisplay || "--:--")
+            color: root.primaryColor
+            font.family: root.globalFont
+            font.pixelSize: root.sh * 0.042
+        }
+
+        Row {
+            id: vuRow
+            anchors.left: cassette.left
+            anchors.bottom: parent.bottom
+            anchors.bottomMargin: root.sh * 0.12
+            spacing: root.sw * 0.008
+
+            Repeater {
+                model: 24
+                Rectangle {
+                    width: root.sw * 0.018
+                    height: {
+                        var wave = Math.abs(Math.sin((visualTick + index * 5) * 0.22))
+                        var lift = paused ? 0.15 : 0.25 + wave * 0.75
+                        return root.sh * (0.025 + lift * 0.12)
+                    }
+                    anchors.bottom: parent.bottom
+                    color: index > 19 ? root.accentColor : root.primaryColor
+                }
+            }
+        }
+    }
+}

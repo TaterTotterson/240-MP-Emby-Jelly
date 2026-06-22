@@ -60,6 +60,26 @@ int streamIndexFromId(const QString &streamId, int fallback = -1) {
 QString abbreviatedNetworkBody(const QByteArray &body) {
     return QString::fromUtf8(body.left(240)).simplified();
 }
+
+QString musicArtistName(const QJsonObject &item) {
+    QString artist = item["AlbumArtist"].toString();
+    if (artist.isEmpty()) {
+        const QJsonArray albumArtists = item["AlbumArtists"].toArray();
+        if (!albumArtists.isEmpty())
+            artist = albumArtists.at(0).toString();
+    }
+    if (artist.isEmpty()) {
+        const QJsonArray artists = item["Artists"].toArray();
+        if (!artists.isEmpty())
+            artist = artists.at(0).toString();
+    }
+    if (artist.isEmpty()) {
+        const QJsonArray artistItems = item["ArtistItems"].toArray();
+        if (!artistItems.isEmpty())
+            artist = artistItems.at(0).toObject()["Name"].toString();
+    }
+    return artist;
+}
 }
 
 EmbyJellyfinBackend::EmbyJellyfinBackend(const QString &appRoot,
@@ -344,7 +364,7 @@ QUrl EmbyJellyfinBackend::itemListUrl(const QString &parentId,
     q.addQueryItem("Recursive", recursive ? "true" : "false");
     q.addQueryItem("SortBy", "SortName");
     q.addQueryItem("SortOrder", "Ascending");
-    q.addQueryItem("Fields", "MediaSources,MediaStreams,Overview,Genres,ParentId,PrimaryImageAspectRatio,UserData,RecursiveItemCount,ChildCount");
+    q.addQueryItem("Fields", "MediaSources,MediaStreams,Overview,Genres,ParentId,PrimaryImageAspectRatio,UserData,RecursiveItemCount,ChildCount,Album,AlbumArtist,AlbumArtists,ArtistItems,Artists");
     q.addQueryItem("ImageTypeLimit", "1");
     q.addQueryItem("EnableImages", "false");
     url.setQuery(q);
@@ -378,6 +398,49 @@ QVariantMap EmbyJellyfinBackend::formatItem(const QJsonObject &item) const {
     };
 }
 
+QVariantMap EmbyJellyfinBackend::formatMusicAlbum(const QJsonObject &item) const {
+    const int duration = static_cast<int>(ticksToMs(item["RunTimeTicks"]));
+    const QString artist = musicArtistName(item).toUpper();
+
+    return QVariantMap{
+        {"ratingKey", item["Id"].toString()},
+        {"key", item["Id"].toString()},
+        {"title", item["Name"].toString().toUpper()},
+        {"artist", artist.isEmpty() ? QStringLiteral("UNKNOWN ARTIST") : artist},
+        {"type", "album"},
+        {"year", item["ProductionYear"].toVariant()},
+        {"duration", duration},
+        {"durationDisplay", duration > 0 ? msToDisplay(duration) : QString{}},
+        {"leafCount", item["RecursiveItemCount"].toInt(item["ChildCount"].toInt())}
+    };
+}
+
+QVariantMap EmbyJellyfinBackend::formatMusicTrack(const QJsonObject &item) const {
+    const int duration = static_cast<int>(ticksToMs(item["RunTimeTicks"]));
+    QString artist = musicArtistName(item);
+
+    const QJsonArray mediaSources = item["MediaSources"].toArray();
+    const QJsonObject mediaSource = mediaSources.isEmpty()
+        ? QJsonObject{}
+        : mediaSources.first().toObject();
+    QString mediaSourceId = mediaSource["Id"].toString();
+    if (mediaSourceId.isEmpty())
+        mediaSourceId = item["Id"].toString();
+
+    return QVariantMap{
+        {"ratingKey", item["Id"].toString()},
+        {"partKey", mediaSourceId},
+        {"title", item["Name"].toString().toUpper()},
+        {"artist", artist.toUpper()},
+        {"album", item["Album"].toString().toUpper()},
+        {"type", "track"},
+        {"index", item["IndexNumber"].toInt()},
+        {"parentIndex", item["ParentIndexNumber"].toInt()},
+        {"duration", duration},
+        {"durationDisplay", msToDisplay(duration)}
+    };
+}
+
 QVariantList EmbyJellyfinBackend::formatItems(const QJsonArray &items) const {
     QVariantList result;
     for (const auto &v : items) {
@@ -386,6 +449,102 @@ QVariantList EmbyJellyfinBackend::formatItems(const QJsonArray &items) const {
             result.append(formatItem(item));
     }
     return result;
+}
+
+void EmbyJellyfinBackend::load_music_libraries() {
+    if (get_auth_state() != "authed") {
+        emit errorOccurred("NOT SIGNED IN");
+        return;
+    }
+
+    auto *reply = apiGet(apiUrl("/Users/" + userId() + "/Views"));
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        reply->deleteLater();
+        if (reply->error() != QNetworkReply::NoError) {
+            emit errorOccurred("LOAD MUSIC LIBRARIES FAILED: " + reply->errorString());
+            return;
+        }
+
+        QVariantList libraries;
+        const QJsonArray views = QJsonDocument::fromJson(reply->readAll())
+                                 .object()["Items"].toArray();
+        for (const auto &v : views) {
+            const QJsonObject view = v.toObject();
+            const QString id = view["Id"].toString();
+            const QString collectionType = view["CollectionType"].toString();
+            if (id.isEmpty() || collectionType != "music")
+                continue;
+
+            libraries.append(QVariantMap{
+                {"key", id},
+                {"title", view["Name"].toString().toUpper()},
+                {"sectionId", id},
+                {"sectionType", collectionType}
+            });
+        }
+
+        emit musicLibrariesLoaded(libraries);
+    });
+}
+
+void EmbyJellyfinBackend::load_music_albums(const QString &sectionId) {
+    if (get_auth_state() != "authed") {
+        emit errorOccurred("NOT SIGNED IN");
+        return;
+    }
+
+    auto *reply = apiGet(itemListUrl(sectionId, "MusicAlbum", true));
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        reply->deleteLater();
+        if (reply->error() != QNetworkReply::NoError) {
+            emit errorOccurred("LOAD MUSIC ALBUMS FAILED: " + reply->errorString());
+            return;
+        }
+
+        QVariantList albums;
+        const QJsonArray items = QJsonDocument::fromJson(reply->readAll())
+                                 .object()["Items"].toArray();
+        for (const auto &v : items) {
+            const QJsonObject item = v.toObject();
+            if (!item["Id"].toString().isEmpty())
+                albums.append(formatMusicAlbum(item));
+        }
+
+        emit musicAlbumsLoaded(albums);
+    });
+}
+
+void EmbyJellyfinBackend::load_music_tracks(const QString &sectionId) {
+    if (get_auth_state() != "authed") {
+        emit errorOccurred("NOT SIGNED IN");
+        return;
+    }
+
+    QUrl url = itemListUrl(sectionId, "Audio", true);
+    QUrlQuery q(url);
+    q.removeAllQueryItems("SortBy");
+    q.addQueryItem("SortBy", "ParentIndexNumber,IndexNumber,SortName");
+    url.setQuery(q);
+
+    auto *reply = apiGet(url);
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        reply->deleteLater();
+        if (reply->error() != QNetworkReply::NoError) {
+            emit errorOccurred("LOAD MUSIC TRACKS FAILED: " + reply->errorString());
+            return;
+        }
+
+        QVariantList tracks;
+        const QJsonArray items = QJsonDocument::fromJson(reply->readAll())
+                                 .object()["Items"].toArray();
+        for (const auto &v : items) {
+            const QJsonObject item = v.toObject();
+            if (!item["Id"].toString().isEmpty())
+                tracks.append(formatMusicTrack(item));
+        }
+
+        emit musicTracksLoaded(tracks);
+    });
 }
 
 void EmbyJellyfinBackend::load_live_tv_channels() {
@@ -1044,6 +1203,24 @@ void EmbyJellyfinBackend::build_stream_url(const QString &ratingKey,
                                            const QString &partKey,
                                            const QString &sessionId) {
     requestPlaybackInfo(ratingKey, partKey, sessionId, {}, {}, 0, false);
+}
+
+void EmbyJellyfinBackend::build_audio_stream_url(const QString &ratingKey,
+                                                 const QString &mediaSourceId) {
+    if (ratingKey.isEmpty()) {
+        emit errorOccurred("AUDIO STREAM FAILED: EMPTY ITEM ID");
+        return;
+    }
+
+    QUrl url = apiUrl("/Audio/" + ratingKey + "/stream");
+    QUrlQuery q;
+    q.addQueryItem("api_key", accessToken());
+    q.addQueryItem("Static", "true");
+    if (!mediaSourceId.isEmpty())
+        q.addQueryItem("MediaSourceId", mediaSourceId);
+    url.setQuery(q);
+
+    emit audioStreamUrlReady(ratingKey, url.toString(), {});
 }
 
 void EmbyJellyfinBackend::request_transcode(const QString &ratingKey,
