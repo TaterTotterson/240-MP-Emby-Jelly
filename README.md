@@ -10,7 +10,7 @@ This fork is focused on one appliance-style setup:
 - Boot screen and automatic launch straight into CRT Station
 - Argon IR remote support through a GPIO IR receiver on GPIO23
 - Local Emby/Jellyfin or Plex browsing and playback
-- Emby/Jellyfin or Plex music playback through a Mixtapes cassette-deck module
+- Emby/Jellyfin or Plex music playback through the Tape Deck module
 - HDHomeRun Over The Air playback
 - YouTube playlist playback through Public Access
 - Game Center ROM browsing from RetroNAS/MiSTer shares with clean RetroArch game launch
@@ -32,7 +32,7 @@ The easiest way to use it is to download the ready-to-flash NTSC or PAL `.img.xz
 - Audio and subtitle track selection
 - H.264/AAC transcode playback with selectable 1080p, 720p, and 480p quality targets
 
-### Mixtapes
+### Tape Deck
 - Streams music from Emby/Jellyfin or Plex music libraries
 - Shows each album as its own tape for easier browsing
 - Cassette-deck playback screen

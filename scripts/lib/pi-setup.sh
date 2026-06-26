@@ -2030,18 +2030,20 @@ def target_speed(mode, fixed_speed, curve):
 def emit_status():
     mode, fixed_speed, curve = load_config()
     bus = bus_obj()
-    available = has_argon(bus)
-    fan = current_fan(bus) if available else 0
+    control_available = smbus is not None
+    detected = has_argon(bus)
+    fan = current_fan(bus) if detected else 0
     temp = cpu_temp()
     close_bus(bus)
 
-    print(f"available={1 if available else 0}")
+    print(f"available={1 if control_available else 0}")
+    print(f"detected={1 if detected else 0}")
     print(f"mode={mode}")
     print(f"speed={clamp_speed(fixed_speed)}")
     print(f"fan={fan}")
     if temp > 0:
         print(f"temp={temp:.1f}")
-    if not available:
+    if not detected:
         if smbus is None:
             print("message=PYTHON SMBUS IS NOT INSTALLED.")
         else:

@@ -120,7 +120,7 @@ sudo systemctl start 240mp
 6. Enter the code shown on the CRT.
 7. Select your Plex server if more than one is available.
 
-The Mixtapes module uses the same selected media provider as Video on Demand.
+The Tape Deck module uses the same selected media provider as Video on Demand.
 
 ## Over The Air Setup
 

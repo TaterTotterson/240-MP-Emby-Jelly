@@ -293,6 +293,7 @@ QVariantMap parseArgonFanControlOutput(const QString &output)
 {
     QVariantMap result{
         {"available", false},
+        {"detected", false},
         {"active", false},
         {"mode", "auto"},
         {"speed", 0},
@@ -300,6 +301,7 @@ QVariantMap parseArgonFanControlOutput(const QString &output)
         {"temp", QVariant{}}
     };
 
+    bool sawDetected = false;
     const QStringList lines = output.split('\n', Qt::SkipEmptyParts);
     for (const QString &line : lines) {
         const int eq = line.indexOf('=');
@@ -310,6 +312,9 @@ QVariantMap parseArgonFanControlOutput(const QString &output)
         const QString value = line.mid(eq + 1).trimmed();
         if (key == "available" || key == "active") {
             result[key] = truthyValue(value);
+        } else if (key == "detected") {
+            result[key] = truthyValue(value);
+            sawDetected = true;
         } else if (key == "mode") {
             result[key] = value;
         } else if (key == "speed" || key == "fan") {
@@ -323,6 +328,9 @@ QVariantMap parseArgonFanControlOutput(const QString &output)
             result[key] = value;
         }
     }
+
+    if (!sawDetected)
+        result["detected"] = result.value("available").toBool();
 
     return result;
 }
@@ -365,6 +373,10 @@ QString argonFanControlMessage(const QVariantMap &info)
         return info.value("message", QStringLiteral("ARGON FAN CONTROL IS NOT AVAILABLE.")).toString();
 
     const QString display = argonFanDisplayValue(info);
+    const QString hardwareMessage = info.value("message").toString().trimmed();
+    if (!info.value("detected", true).toBool() && !hardwareMessage.isEmpty())
+        return QStringLiteral("ARGON FAN %1. %2").arg(display, hardwareMessage);
+
     const double temp = info.value("temp").toDouble();
     if (info.contains("temp") && temp > 0.0)
         return QStringLiteral("ARGON FAN %1. CPU %2 C.").arg(display).arg(temp, 0, 'f', 1);
@@ -376,6 +388,7 @@ QVariantMap runArgonFanControl(const QStringList &helperArgs)
     QVariantMap result{
         {"ok", false},
         {"available", false},
+        {"detected", false},
         {"active", false},
         {"mode", "auto"},
         {"speed", 0},
@@ -422,6 +435,12 @@ QVariantMap runArgonFanControl(const QStringList &helperArgs)
         result.insert(it.key(), it.value());
 
     const bool ok = process.exitStatus() == QProcess::NormalExit && process.exitCode() == 0;
+    const QString helperMessage = result.value("message").toString();
+    const bool smbusMissing = helperMessage.contains(QStringLiteral("SMBUS"),
+                                                     Qt::CaseInsensitive);
+    if (ok)
+        result["available"] = result.value("available").toBool() || !smbusMissing;
+
     result["ok"] = ok;
     result["display"] = argonFanDisplayValue(result);
     result["message"] = ok ? argonFanControlMessage(result)
