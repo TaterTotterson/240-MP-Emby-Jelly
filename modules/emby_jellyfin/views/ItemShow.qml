@@ -137,6 +137,7 @@ FocusScope {
 
     AppBar {
         iconSource: moduleRoot.moduleIcon
+        iconHeight: root.sh * 0.075
         title: moduleRoot.moduleName
         subtitle: libraryName
         anchors.top: parent.top

@@ -7,6 +7,7 @@
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QJSValue>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
@@ -40,6 +41,46 @@ int compareVersions(const QString &left, const QString &right)
     }
 
     return QString::compare(left, right, Qt::CaseInsensitive);
+}
+
+QVariant jsonFriendlyVariant(const QVariant &value)
+{
+    if (value.metaType() == QMetaType::fromType<QJSValue>())
+        return jsonFriendlyVariant(value.value<QJSValue>().toVariant());
+
+    if (value.metaType().id() == QMetaType::QVariantList) {
+        QVariantList normalized;
+        const QVariantList list = value.toList();
+        normalized.reserve(list.size());
+        for (const QVariant &item : list)
+            normalized.append(jsonFriendlyVariant(item));
+        return normalized;
+    }
+
+    if (value.metaType().id() == QMetaType::QVariantMap) {
+        QVariantMap normalized;
+        const QVariantMap map = value.toMap();
+        for (auto it = map.constBegin(); it != map.constEnd(); ++it)
+            normalized.insert(it.key(), jsonFriendlyVariant(it.value()));
+        return normalized;
+    }
+
+    return value;
+}
+
+QJsonValue jsonValueFromVariant(const QVariant &value)
+{
+    return QJsonValue::fromVariant(jsonFriendlyVariant(value));
+}
+
+QString settingDebugValue(const QVariant &value)
+{
+    const QJsonValue jsonValue = jsonValueFromVariant(value);
+    if (jsonValue.isArray())
+        return QString::fromUtf8(QJsonDocument(jsonValue.toArray()).toJson(QJsonDocument::Compact));
+    if (jsonValue.isObject())
+        return QString::fromUtf8(QJsonDocument(jsonValue.toObject()).toJson(QJsonDocument::Compact));
+    return jsonValue.toVariant().toString();
 }
 
 bool truthyValue(const QString &value)
@@ -158,19 +199,23 @@ QVariantMap parseBluetoothControlOutput(const QString &output)
             if (parts.size() < 6)
                 continue;
 
-            const bool paired = truthyValue(parts.value(3));
+            const bool bonded = truthyValue(parts.value(6));
+            const bool paired = truthyValue(parts.value(3)) || bonded;
             const bool trusted = truthyValue(parts.value(4));
             const bool connected = truthyValue(parts.value(5));
             QString status = QStringLiteral("PAIR");
             if (connected)
                 status = QStringLiteral("CONNECTED");
-            else if (paired || trusted)
-                status = QStringLiteral("PAIRED");
+            else if (paired)
+                status = QStringLiteral("CONNECT");
+            else if (trusted)
+                status = QStringLiteral("PAIR AGAIN");
 
             devices.append(QVariantMap{
                 {"address", parts.value(1)},
                 {"name", parts.value(2).isEmpty() ? parts.value(1) : parts.value(2)},
                 {"paired", paired},
+                {"bonded", bonded},
                 {"trusted", trusted},
                 {"connected", connected},
                 {"status", status}
@@ -209,7 +254,9 @@ QString bluetoothControlMessage(const QVariantMap &info, const QString &action)
     }
 
     if (action == QStringLiteral("pair-connect"))
-        return QStringLiteral("CONTROLLER CONNECT REQUEST SENT.");
+        return QStringLiteral("CONTROLLER READY.");
+    if (action == QStringLiteral("connect"))
+        return QStringLiteral("CONTROLLER CONNECTED.");
     if (action == QStringLiteral("forget"))
         return QStringLiteral("CONTROLLER FORGOTTEN.");
 
@@ -604,10 +651,10 @@ void AppCore::save_setting(const QString &moduleId, const QString &key, const QV
     QStringList parts = key.split('.', Qt::KeepEmptyParts);
     if (parts.size() == 2) {
         QJsonObject sub = target[parts[0]].toObject();
-        sub[parts[1]] = QJsonValue::fromVariant(value);
+        sub[parts[1]] = jsonValueFromVariant(value);
         target[parts[0]] = sub;
     } else {
-        target[key] = QJsonValue::fromVariant(value);
+        target[key] = jsonValueFromVariant(value);
     }
 
     setTarget(target);
@@ -615,7 +662,7 @@ void AppCore::save_setting(const QString &moduleId, const QString &key, const QV
 
     qDebug("[AppCore] Setting saved: %s.%s = %s",
            qPrintable(moduleId.isEmpty() ? "app" : moduleId),
-           qPrintable(key), qPrintable(value.toString()));
+           qPrintable(key), qPrintable(settingDebugValue(value)));
 
     if (moduleId.isEmpty())
         emit appSettingChanged(key, value.toString());
@@ -895,7 +942,7 @@ void AppCore::scanBluetoothDevicesAsync() {
 }
 
 QVariantMap AppCore::pairBluetoothDevice(const QString &address) {
-    return runBluetoothControl({QStringLiteral("pair-connect"), address.trimmed()}, 30000);
+    return runBluetoothControl({QStringLiteral("pair-connect"), address.trimmed()}, 60000);
 }
 
 QVariantMap AppCore::connectBluetoothDevice(const QString &address) {

@@ -83,8 +83,14 @@ FocusScope {
 
     function savePlaylistRows(nextPlaylists) {
         appCore.save_setting(moduleId, "playlists", nextPlaylists)
-        playlists = nextPlaylists
+        playlists = youtubePlaylistBackend.get_saved_playlists()
+        if (playlists.length < nextPlaylists.length) {
+            playlists = nextPlaylists
+            buildPlaylistRows()
+            return false
+        }
         buildPlaylistRows()
+        return true
     }
 
     function updateCurrentPlaylistTitle(title) {
@@ -107,9 +113,10 @@ FocusScope {
         }
     }
 
-    function addPlaylist() {
+    function addPlaylist(inputOverride) {
         if (addingPlaylist) return
-        var value = (playlistField.text || "").trim()
+        var value = ((inputOverride !== undefined ? inputOverride : playlistField.text) || "").trim()
+        playlistField.text = value
         if (value === "") {
             statusText = "ENTER PLAYLIST CODE"
             playlistField.forceActiveFocus()
@@ -131,6 +138,7 @@ FocusScope {
 
         if (!info || info.ok !== true || !info.url) {
             statusText = (info && info.message) ? info.message : "PLAYLIST LOOKUP FAILED - TRY AGAIN"
+            playlistField.text = value || playlistField.text
             playlistField.forceActiveFocus()
             playlistField.selectAll()
             return
@@ -152,7 +160,14 @@ FocusScope {
         }
         var next = playlists.slice()
         next.push(item)
-        savePlaylistRows(next)
+        if (!savePlaylistRows(next)) {
+            mode = "add"
+            statusText = "COULD NOT SAVE PLAYLIST"
+            playlistField.text = value
+            playlistField.forceActiveFocus()
+            playlistField.selectAll()
+            return
+        }
         statusText = "PLAYLIST ADDED"
         loadPlaylistLibrary(next.length - 1)
     }
@@ -242,7 +257,10 @@ FocusScope {
         }
 
         if (mode === "add") {
-            if (event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace || event.key === Qt.Key_Back) {
+            if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
+                addPlaylist(playlistField.text)
+                event.accepted = true
+            } else if (event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace || event.key === Qt.Key_Back) {
                 cancelAdd()
                 event.accepted = true
             }
@@ -402,6 +420,7 @@ FocusScope {
 
     AppBar {
         iconSource: moduleIcon
+        iconHeight: root.sh * 0.075
         title: moduleName
         subtitle: mode === "list" ? playlistTitle : (mode === "library" ? "PLAYLISTS" : "PUBLIC")
         anchors.top: parent.top
@@ -458,8 +477,14 @@ FocusScope {
                 font.pixelSize: root.sh * 0.045
                 clip: true
 
-                Keys.onReturnPressed: mixRoot.addPlaylist()
-                Keys.onEnterPressed: mixRoot.addPlaylist()
+                Keys.onReturnPressed: function(event) {
+                    mixRoot.addPlaylist(playlistField.text)
+                    event.accepted = true
+                }
+                Keys.onEnterPressed: function(event) {
+                    mixRoot.addPlaylist(playlistField.text)
+                    event.accepted = true
+                }
                 Keys.onPressed: function(event) {
                     if (event.key === Qt.Key_Escape || event.key === Qt.Key_Back) {
                         mixRoot.cancelAdd()

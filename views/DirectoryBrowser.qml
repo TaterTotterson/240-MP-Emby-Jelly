@@ -53,6 +53,7 @@ FocusScope {
 
     AppBar {
         iconSource: "../../assets/images/settings.svg"
+        iconHeight: root.sh * 0.075
         title: "Settings"
         subtitle: currentBrowsePath
         anchors.top: parent.top

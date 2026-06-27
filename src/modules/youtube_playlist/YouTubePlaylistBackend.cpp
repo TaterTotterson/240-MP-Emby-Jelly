@@ -706,24 +706,30 @@ QVariantMap YouTubePlaylistBackend::resolve_playlist_info(const QString &input) 
 
     QString error;
     const QVariantMap info = inspectPlaylist(playlistUrl, 1, &error);
-    const QVariantMap fallbackData = error.isEmpty()
+    const QVariantList entries = info.value(QStringLiteral("entries")).toList();
+    const int playlistCount = info.value(QStringLiteral("playlist_count")).toInt();
+    const QString infoTitle = info.value(QStringLiteral("title")).toString().trimmed();
+    const QVariantMap fallbackData = error.isEmpty() && !entries.isEmpty()
         ? QVariantMap{}
         : playlistDataFromHtml(playlistUrl, 1);
     const QVariantList fallbackItems = fallbackData.value(QStringLiteral("items")).toList();
     const QString title = cleanTitle(
-        info.value(QStringLiteral("title")).toString(),
+        infoTitle,
         cleanTitle(fallbackData.value(QStringLiteral("title")).toString(),
                    fallbackPlaylistTitle(input, 0)));
+    const bool hasMetadata = error.isEmpty()
+        && (!entries.isEmpty() || playlistCount > 0 || !infoTitle.isEmpty());
+    const bool ok = hasMetadata || !fallbackItems.isEmpty();
 
-    result[QStringLiteral("ok")] = error.isEmpty() || !fallbackItems.isEmpty();
+    result[QStringLiteral("ok")] = ok;
     result[QStringLiteral("input")] = input.trimmed();
     result[QStringLiteral("url")] = playlistUrl;
     result[QStringLiteral("title")] = title;
     result[QStringLiteral("id")] = QString::fromLatin1(
         QCryptographicHash::hash(playlistUrl.toUtf8(), QCryptographicHash::Sha1).toHex());
-    result[QStringLiteral("message")] = error.isEmpty() || !fallbackItems.isEmpty()
+    result[QStringLiteral("message")] = ok
         ? QString()
-        : error;
+        : (error.isEmpty() ? QStringLiteral("PLAYLIST LOOKUP FOUND NO VIDEOS") : error);
     return result;
 }
 

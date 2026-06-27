@@ -53,6 +53,12 @@
       "default": "Auto"
     },
     {
+      "key": "forget_pairing",
+      "label": "RESET PAIRING",
+      "type": "action",
+      "action_slot": "forget_pairing"
+    },
+    {
       "key": "refresh_app_cache",
       "label": "REFRESH PC APPS",
       "type": "action",

@@ -16,8 +16,8 @@ FocusScope {
     property int trackIndex: 0
     property string mode: "loading"
     property string statusText: "LOADING TAPES..."
-    property string currentLibraryTitle: "MIXTAPES"
-    property string currentAlbumTitle: "MIXTAPE"
+    property string currentLibraryTitle: "TAPE DECK"
+    property string currentAlbumTitle: "TAPE"
     property string currentAlbumArtist: "UNKNOWN ARTIST"
     property bool skippedLibraryPicker: false
     property string pendingItemId: ""
@@ -47,7 +47,7 @@ FocusScope {
 
     function currentAlbum() {
         var track = currentTrack()
-        return track.album || currentAlbumTitle || "MIXTAPE"
+        return track.album || currentAlbumTitle || "TAPE"
     }
 
     function formatTime(ms) {
@@ -74,7 +74,7 @@ FocusScope {
         if (index < 0 || index >= libraries.length) return
         currentLibraryIndex = index
         var library = libraries[index] || ({})
-        currentLibraryTitle = library.title || "MIXTAPE"
+        currentLibraryTitle = library.title || "TAPE DECK"
         currentAlbumIndex = 0
         albums = []
         tracks = []
@@ -88,7 +88,7 @@ FocusScope {
         currentAlbumIndex = index
         albumList.currentIndex = index
         var album = albums[index] || ({})
-        currentAlbumTitle = album.title || "MIXTAPE"
+        currentAlbumTitle = album.title || "TAPE"
         currentAlbumArtist = album.artist || "UNKNOWN ARTIST"
         tracks = []
         mode = "loading"
@@ -340,7 +340,7 @@ FocusScope {
             playing = true
             paused = false
             ignoringPreviousTrackExit = false
-            mpvController.loadAudioAndPlay(url, 0.0, httpHeaderFields || "", track.title || "MIXTAPE")
+            mpvController.loadAudioAndPlay(url, 0.0, httpHeaderFields || "", track.title || "TAPE")
         }
 
         function onErrorOccurred(message) {
@@ -348,7 +348,7 @@ FocusScope {
             if (mode === "loading" || mode === "deck") {
                 playing = false
                 mode = "message"
-                statusText = message || "MIXTAPE ERROR"
+                statusText = message || "TAPE ERROR"
             }
         }
     }
@@ -424,7 +424,7 @@ FocusScope {
     }
 
     AppBar {
-        title: mode === "deck" ? "TAPE DECK" : "MIXTAPES"
+        title: "TAPE DECK"
         anchors.top: parent.top
         anchors.left: parent.left
         anchors.topMargin: root.sh * 0.125

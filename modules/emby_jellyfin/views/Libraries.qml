@@ -45,6 +45,7 @@ FocusScope {
     // Header
     AppBar {
         iconSource: moduleRoot.moduleIcon
+        iconHeight: root.sh * 0.075
         title: moduleRoot.moduleName
         subtitle: browseRoot.serverName
         anchors.top: parent.top

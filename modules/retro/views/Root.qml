@@ -294,6 +294,7 @@ FocusScope {
 
     AppBar {
         iconSource: moduleIcon
+        iconHeight: root.sh * 0.075
         title: moduleName
         subtitle: mode === "games" ? selectedSystemTitle : "MISTER"
         anchors.top: parent.top

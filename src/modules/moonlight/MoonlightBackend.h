@@ -34,6 +34,8 @@ public:
     Q_INVOKABLE QString get_auth_state();
     Q_INVOKABLE QVariantMap get_setup_status();
     Q_INVOKABLE void pair_host(const QString &host);
+    Q_INVOKABLE void repair_host(const QString &host);
+    Q_INVOKABLE void forget_pairing();
     Q_INVOKABLE void cancel_pairing();
     Q_INVOKABLE void load_apps();
     Q_INVOKABLE void refresh_app_cache();
@@ -68,6 +70,7 @@ private:
     QVariantList loadAppCache() const;
     bool saveAppCache(const QVariantList &apps) const;
     void clearAppCache() const;
+    void removeMoonlightPairingState() const;
     void startAppList(bool forceRefresh);
     QVariantList parseAppList(const QString &output) const;
     QString bundledMoonlightPath() const;

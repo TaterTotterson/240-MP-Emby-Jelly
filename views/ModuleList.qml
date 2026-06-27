@@ -63,9 +63,8 @@ FocusScope {
     ListView {
         id: menuList;
         model: [];
-        anchors.top: parent.top
         anchors.left: parent.left
-        anchors.topMargin: root.sh * 0.25 //120
+        anchors.verticalCenter: parent.verticalCenter
         anchors.leftMargin: root.sw * 0.115625 //74
         width: root.sw * 0.76875 //492
         height: root.sh * 0.525 //252
@@ -135,7 +134,7 @@ FocusScope {
                 }
             }
         }
-        
+
         Keys.onReturnPressed: {
             var selectedModulePath = menuList.model[menuList.currentIndex].entry_point
             console.log("Routing to: " + selectedModulePath)

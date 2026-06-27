@@ -41,6 +41,13 @@ FocusScope {
         setupFocusTimer.restart()
     }
 
+    function actionRows() {
+        return [
+            { type: "action", action: "repair", title: "RE-PAIR SUNSHINE" },
+            { type: "action", action: "refresh", title: "REFRESH PC APPS" }
+        ]
+    }
+
     function focusSetupRow() {
         if (setupRow === 0) hostField.forceInputFocus()
         else pairButton.forceActiveFocus()
@@ -88,7 +95,7 @@ FocusScope {
         pairCode = "----"
         statusText = "REQUESTING PAIR CODE"
         mode = "pairing"
-        moonlightBackend.pair_host(host)
+        moonlightBackend.repair_host(host)
     }
 
     function loadApps() {
@@ -105,11 +112,34 @@ FocusScope {
         moonlightBackend.refresh_app_cache()
     }
 
+    function repairSunshine() {
+        if (pairing) return
+        var status = moonlightBackend.get_setup_status()
+        var host = (status.host || settingValue("sunshine_host", "") || "").trim()
+        if (host === "") {
+            showSetup("ENTER SUNSHINE HOST")
+            return
+        }
+        pairing = true
+        pairCode = "----"
+        statusText = "REQUESTING PAIR CODE"
+        mode = "pairing"
+        moonlightBackend.repair_host(host)
+    }
+
     function launchSelectedApp() {
         var index = appList.currentIndex
         if (index < 0 || index >= apps.length) return
         currentAppIndex = index
         var item = apps[index] || ({})
+        if (item.type === "action" && item.action === "repair") {
+            repairSunshine()
+            return
+        }
+        if (item.type === "action" && item.action === "refresh") {
+            refreshApps()
+            return
+        }
         var name = item.name || item.title || ""
         if (name === "") return
         mode = "loading"
@@ -224,13 +254,11 @@ FocusScope {
 
         function onAppsLoaded(items) {
             loadingApps = false
-            apps = items || []
-            if (apps.length === 0) {
-                mode = "message"
-                statusText = "NO PC APPS FOUND"
-                return
-            }
+            var loadedApps = items || []
+            apps = actionRows().concat(loadedApps)
             mode = "apps"
+            if (loadedApps.length > 0 && currentAppIndex < actionRows().length)
+                currentAppIndex = actionRows().length
             currentAppIndex = Math.min(currentAppIndex, apps.length - 1)
             appList.currentIndex = currentAppIndex
         }
@@ -248,6 +276,11 @@ FocusScope {
 
         function onErrorOccurred(message) {
             loadingApps = false
+            var lower = (message || "").toLowerCase()
+            if (lower.indexOf("pair") >= 0 || lower.indexOf("pin") >= 0) {
+                showSetup(message || "PAIR SUNSHINE")
+                return
+            }
             mode = "message"
             statusText = message || "PC LINK FAILED"
         }
@@ -266,6 +299,7 @@ FocusScope {
 
     AppBar {
         iconSource: moduleIcon
+        iconHeight: root.sh * 0.075
         title: moduleName
         subtitle: mode === "apps" ? (settingValue("sunshine_host", "SUNSHINE")) : "SUNSHINE"
         anchors.top: parent.top

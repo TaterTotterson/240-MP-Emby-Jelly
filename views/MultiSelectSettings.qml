@@ -60,6 +60,7 @@ FocusScope {
     // Header
     AppBar {
         iconSource: "../../assets/images/settings.svg"
+        iconHeight: root.sh * 0.075
         title: "Settings"
         subtitle: moduleId.split(".").pop().toUpperCase() + " / " + settingLabel
         anchors.top: parent.top

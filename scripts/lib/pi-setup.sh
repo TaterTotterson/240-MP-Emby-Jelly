@@ -232,8 +232,20 @@ pi240_install_latest_ytdlp() {
     rm -f "$tmp"
 }
 
+pi240_moonlight_binary_usable() {
+    local bin="$1"
+    [ -x "$bin" ] || return 1
+
+    if command -v ldd >/dev/null 2>&1; then
+        ! ldd "$bin" 2>&1 | grep -q 'not found'
+        return $?
+    fi
+
+    return 0
+}
+
 pi240_install_moonlight_streaming() {
-    if [ -x /opt/240mp/share/240mp/vendor/moonlight-sdl/bin/moonlight ]; then
+    if pi240_moonlight_binary_usable /opt/240mp/share/240mp/vendor/moonlight-sdl/bin/moonlight; then
         return 0
     fi
 
@@ -274,7 +286,7 @@ pi240_install_moonlight_sdl_bundle() {
     local bundle_dir="${2:-${install_dir}/share/240mp/vendor/moonlight-sdl}"
     local build_script="${3:-${install_dir}/share/240mp/scripts/build-moonlight-sdl.sh}"
 
-    if [ -x "${bundle_dir}/bin/moonlight" ]; then
+    if pi240_moonlight_binary_usable "${bundle_dir}/bin/moonlight"; then
         return 0
     fi
 
@@ -1014,12 +1026,24 @@ find_service_home() {
     printf '%s\n' "${home:-/var/lib/240mp}"
 }
 
+moonlight_bin_usable() {
+    local bin="$1"
+    [ -x "$bin" ] || return 1
+
+    if command -v ldd >/dev/null 2>&1; then
+        ! ldd "$bin" 2>&1 | grep -q 'not found'
+        return $?
+    fi
+
+    return 0
+}
+
 find_moonlight_bin() {
-    if [ -n "${MP240_MOONLIGHT_BIN:-}" ] && [ -x "$MP240_MOONLIGHT_BIN" ]; then
+    if [ -n "${MP240_MOONLIGHT_BIN:-}" ] && moonlight_bin_usable "$MP240_MOONLIGHT_BIN"; then
         printf '%s\n' "$MP240_MOONLIGHT_BIN"
         return 0
     fi
-    if [ -x "${default_bundle}/bin/moonlight" ]; then
+    if moonlight_bin_usable "${default_bundle}/bin/moonlight"; then
         printf '%s\n' "${default_bundle}/bin/moonlight"
         return 0
     fi
@@ -1507,6 +1531,11 @@ pi240_configure_bluetooth_input() {
     # DualSense and some other controllers can pair/trust without BlueZ marking
     # them bonded. The default HID input policy then connects but refuses to
     # create /dev/input nodes, so SDL never sees the controller.
+    pi240_set_bluetooth_main_option DiscoverableTimeout 0 General
+    pi240_set_bluetooth_main_option PairableTimeout 0 General
+    pi240_set_bluetooth_main_option AlwaysPairable true General
+    pi240_set_bluetooth_main_option FastConnectable true General
+    pi240_set_bluetooth_main_option JustWorksRepairing always General
     pi240_set_bluetooth_main_option AutoEnable true Policy
     pi240_set_bluetooth_input_option UserspaceHID true
     pi240_set_bluetooth_input_option ClassicBondedOnly false
@@ -1536,8 +1565,8 @@ Description=Retry CRT Station Bluetooth controller reconnect
 
 [Timer]
 OnBootSec=12s
-OnUnitActiveSec=30s
-AccuracySec=5s
+OnUnitActiveSec=5s
+AccuracySec=1s
 Unit=240mp-bluetooth-reconnect.service
 
 [Install]
@@ -1645,6 +1674,7 @@ emit_device() {
 
     local name
     local paired=0
+    local bonded=0
     local trusted=0
     local connected=0
 
@@ -1653,13 +1683,45 @@ emit_device() {
     name="${name//$'\t'/ }"
 
     if truthy "$(device_value "$mac" Paired)"; then paired=1; fi
+    if truthy "$(device_value "$mac" Bonded)"; then bonded=1; paired=1; fi
     if truthy "$(device_value "$mac" Trusted)"; then trusted=1; fi
     if truthy "$(device_value "$mac" Connected)"; then connected=1; fi
 
-    printf 'device\t%s\t%s\t%s\t%s\t%s\n' "$mac" "$name" "$paired" "$trusted" "$connected"
+    printf 'device\t%s\t%s\t%s\t%s\t%s\t%s\n' "$mac" "$name" "$paired" "$trusted" "$connected" "$bonded"
+}
+
+device_matches_input() {
+    local mac="$1"
+    local fallback_name="${2:-}"
+    local icon
+    local name
+    local info
+    local lower_name
+
+    icon="$(device_value "$mac" Icon)"
+    case "$icon" in
+        input-gaming|input-keyboard|input-mouse|input-tablet)
+            return 0
+            ;;
+    esac
+
+    info="$(bluetoothctl info "$mac" 2>/dev/null || true)"
+    printf '%s\n' "$info" | grep -qi 'Human Interface Device' && return 0
+
+    name="$(printf '%s\n' "$info" | sed -n -E 's/^[[:space:]]*Name:[[:space:]]*(.*)$/\1/p' | head -n 1)"
+    name="${name:-$fallback_name}"
+    lower_name="$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]')"
+    case "$lower_name" in
+        *controller*|*gamepad*|*dualsense*|*dualshock*|*8bitdo*|*xbox*|*joy-con*|*joycon*|*pro\ controller*|*steam\ controller*|*crkd*)
+            return 0
+            ;;
+    esac
+
+    return 1
 }
 
 emit_devices() {
+    local filter="${1:-all}"
     local line
     local rest
     local mac
@@ -1672,6 +1734,9 @@ emit_devices() {
                 mac="${rest%% *}"
                 name="${rest#"$mac"}"
                 name="${name# }"
+                if [ "$filter" = "input" ] && ! device_matches_input "$mac" "$name"; then
+                    continue
+                fi
                 emit_device "$mac" "$name"
                 ;;
         esac
@@ -1710,6 +1775,17 @@ power_on_controllers() {
     bluetoothctl power on >/dev/null 2>&1 || true
 }
 
+configure_adapter_runtime() {
+    if command -v btmgmt >/dev/null 2>&1; then
+        btmgmt -i hci0 fast-conn on >/dev/null 2>&1 || true
+        btmgmt -i hci0 connectable on >/dev/null 2>&1 || true
+        btmgmt -i hci0 bondable on >/dev/null 2>&1 || true
+        btmgmt -i hci0 discov on >/dev/null 2>&1 || true
+    fi
+    bluetoothctl pairable on >/dev/null 2>&1 || true
+    bluetoothctl discoverable on >/dev/null 2>&1 || true
+}
+
 connect_device() {
     local mac="$1"
     local seconds="${BLUETOOTH_CONNECT_TIMEOUT:-8}"
@@ -1720,12 +1796,64 @@ connect_device() {
     if [ "$seconds" -lt 3 ]; then seconds=3; fi
     if [ "$seconds" -gt 20 ]; then seconds=20; fi
 
+    if truthy "$(device_value "$mac" Connected)"; then
+        return 0
+    fi
+
     bluetoothctl trust "$mac" >/dev/null 2>&1 || true
     if command -v timeout >/dev/null 2>&1; then
-        timeout "$seconds" bluetoothctl connect "$mac" >/dev/null 2>&1 || true
+        timeout "$seconds" bluetoothctl connect "$mac" >/dev/null 2>&1
     else
-        bluetoothctl connect "$mac" >/dev/null 2>&1 || true
+        bluetoothctl connect "$mac" >/dev/null 2>&1
     fi
+}
+
+prepare_bluetooth_agent() {
+    bluetoothctl agent KeyboardDisplay >/dev/null 2>&1 || bluetoothctl agent on >/dev/null 2>&1 || true
+    bluetoothctl default-agent >/dev/null 2>&1 || true
+}
+
+device_paired_or_bonded() {
+    local mac="$1"
+    truthy "$(device_value "$mac" Paired)" || truthy "$(device_value "$mac" Bonded)"
+}
+
+pair_device() {
+    local mac="$1"
+    local seconds="${BLUETOOTH_PAIR_TIMEOUT:-30}"
+
+    case "$seconds" in
+        ''|*[!0-9]*) seconds=30 ;;
+    esac
+    if [ "$seconds" -lt 15 ]; then seconds=15; fi
+    if [ "$seconds" -gt 60 ]; then seconds=60; fi
+
+    if ! device_paired_or_bonded "$mac"; then
+        bluetoothctl remove "$mac" >/dev/null 2>&1 || true
+        sleep 1
+    fi
+
+    bluetoothctl scan off >/dev/null 2>&1 || true
+    if command -v timeout >/dev/null 2>&1; then
+        bluetoothctl --timeout 8 scan on >/dev/null 2>&1 || true
+        bluetoothctl scan off >/dev/null 2>&1 || true
+        timeout "$seconds" bluetoothctl pair "$mac" >/dev/null 2>&1 || true
+    else
+        bluetoothctl scan on >/dev/null 2>&1 || true
+        sleep 8
+        bluetoothctl scan off >/dev/null 2>&1 || true
+        bluetoothctl pair "$mac" >/dev/null 2>&1 || true
+    fi
+
+    bluetoothctl scan off >/dev/null 2>&1 || true
+    sleep 1
+    if ! device_paired_or_bonded "$mac"; then
+        bluetoothctl remove "$mac" >/dev/null 2>&1 || true
+        return 1
+    fi
+
+    bluetoothctl trust "$mac" >/dev/null 2>&1 || true
+    return 0
 }
 
 reconnect_known_devices() {
@@ -1733,6 +1861,7 @@ reconnect_known_devices() {
     local rest
     local mac
     local paired
+    local bonded
     local trusted
     local connected
 
@@ -1743,13 +1872,14 @@ reconnect_known_devices() {
                 mac="${rest%% *}"
                 valid_address "$mac" || continue
                 paired="$(device_value "$mac" Paired)"
+                bonded="$(device_value "$mac" Bonded)"
                 trusted="$(device_value "$mac" Trusted)"
                 connected="$(device_value "$mac" Connected)"
                 if truthy "$connected"; then
                     continue
                 fi
-                if truthy "$paired" || truthy "$trusted"; then
-                    connect_device "$mac"
+                if truthy "$paired" || truthy "$bonded"; then
+                    connect_device "$mac" >/dev/null 2>&1 || true
                 fi
                 ;;
         esac
@@ -1778,8 +1908,8 @@ enable_bluetooth() {
         systemctl start "$unit" >/dev/null
         unblock_bluetooth
         power_on_controllers
-        bluetoothctl agent on >/dev/null 2>&1 || true
-        bluetoothctl default-agent >/dev/null 2>&1 || true
+        prepare_bluetooth_agent
+        configure_adapter_runtime
     fi
 }
 
@@ -1798,6 +1928,7 @@ disable_bluetooth() {
 case "$action" in
     status)
         emit_status
+        emit_devices
         ;;
     enable)
         enable_bluetooth
@@ -1811,7 +1942,7 @@ case "$action" in
         enable_bluetooth
         scan_devices
         emit_status
-        emit_devices
+        emit_devices input
         ;;
     pair-connect)
         require_available
@@ -1820,11 +1951,20 @@ case "$action" in
             exit 2
         }
         enable_bluetooth
-        bluetoothctl pair "$address" >/dev/null 2>&1 || true
-        bluetoothctl trust "$address" >/dev/null 2>&1 || true
-        bluetoothctl connect "$address" >/dev/null
+        if ! pair_device "$address"; then
+            echo "controller did not finish pairing; hold pairing mode and try again" >&2
+            emit_status
+            emit_devices input
+            exit 3
+        fi
+        if ! connect_device "$address"; then
+            echo "controller paired but did not connect; turn it on and use connect" >&2
+            emit_status
+            emit_devices input
+            exit 4
+        fi
         emit_status
-        emit_device "$address"
+        emit_devices input
         ;;
     connect)
         require_available
@@ -1833,10 +1973,20 @@ case "$action" in
             exit 2
         }
         enable_bluetooth
-        bluetoothctl trust "$address" >/dev/null 2>&1 || true
-        bluetoothctl connect "$address" >/dev/null
+        if ! device_paired_or_bonded "$address"; then
+            echo "controller is not paired; scan and pair it again" >&2
+            emit_status
+            emit_devices input
+            exit 3
+        fi
+        if ! connect_device "$address"; then
+            echo "controller did not connect; turn it on and try again" >&2
+            emit_status
+            emit_devices input
+            exit 4
+        fi
         emit_status
-        emit_device "$address"
+        emit_devices input
         ;;
     reconnect)
         require_available
@@ -1849,8 +1999,8 @@ case "$action" in
             systemctl start "$unit" >/dev/null
             unblock_bluetooth
             power_on_controllers
-            bluetoothctl agent on >/dev/null 2>&1 || true
-            bluetoothctl default-agent >/dev/null 2>&1 || true
+            prepare_bluetooth_agent
+            configure_adapter_runtime
             reconnect_known_devices
         fi
         emit_status
@@ -1865,7 +2015,7 @@ case "$action" in
         bluetoothctl disconnect "$address" >/dev/null 2>&1 || true
         bluetoothctl remove "$address" >/dev/null
         emit_status
-        emit_devices
+        emit_devices input
         ;;
     *)
         echo "usage: $0 [status|enable|disable|scan|pair-connect <mac>|connect <mac>|reconnect|forget <mac>]" >&2

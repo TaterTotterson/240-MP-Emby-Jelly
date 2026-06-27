@@ -79,19 +79,21 @@ QVariantMap loadControllerMapping(const QString &dataRoot)
     return doc.object().toVariantMap();
 }
 
-void writeRetroBinding(QTextStream &out, const QString &retroKey, const QVariantMap &binding)
+void writeRetroBinding(QTextStream &out, int player, const QString &retroKey,
+                       const QVariantMap &binding)
 {
     const QString type = binding.value(QStringLiteral("retroType")).toString();
     const QString value = binding.value(QStringLiteral("retroValue")).toString();
-    if (retroKey.isEmpty() || value.isEmpty())
+    if (player < 1 || retroKey.isEmpty() || value.isEmpty())
         return;
 
+    const QString prefix = QStringLiteral("input_player%1_%2").arg(player).arg(retroKey);
     if (type == QStringLiteral("axis")) {
-        out << "input_player1_" << retroKey << "_axis = \"" << escapeRetroValue(value) << "\"\n";
-        out << "input_player1_" << retroKey << "_btn = \"nul\"\n";
+        out << prefix << "_axis = \"" << escapeRetroValue(value) << "\"\n";
+        out << prefix << "_btn = \"nul\"\n";
     } else {
-        out << "input_player1_" << retroKey << "_axis = \"nul\"\n";
-        out << "input_player1_" << retroKey << "_btn = \"" << escapeRetroValue(value) << "\"\n";
+        out << prefix << "_axis = \"nul\"\n";
+        out << prefix << "_btn = \"" << escapeRetroValue(value) << "\"\n";
     }
 }
 
@@ -884,8 +886,10 @@ QString RetroBackend::writeRetroarchConfig()
     out << "input_exit_emulator_btn = \"nul\"\n";
     out << "input_driver = \"udev\"\n";
     out << "input_autodetect_enable = \"false\"\n";
-    out << "input_libretro_device_p1 = \"1\"\n";
-    out << "input_device_p1 = \"1\"\n";
+    for (int player = 1; player <= 4; ++player) {
+        out << "input_libretro_device_p" << player << " = \"1\"\n";
+        out << "input_device_p" << player << " = \"1\"\n";
+    }
     out << "menu_show_start_screen = \"false\"\n";
     out << "savestate_directory = \"" << escapeRetroValue(QDir(retroRoot).absoluteFilePath("states")) << "\"\n";
     out << "savefile_directory = \"" << escapeRetroValue(QDir(retroRoot).absoluteFilePath("saves")) << "\"\n";
@@ -896,29 +900,31 @@ QString RetroBackend::writeRetroarchConfig()
     const QVariantMap bindings = controllerMapping.value(QStringLiteral("bindings")).toMap();
     if (!bindings.isEmpty()) {
         out << "input_joypad_driver = \"udev\"\n";
-        out << "input_player1_joypad_index = \"0\"\n";
 
-        const auto writeMapped = [&](const QString &retroKey, const QString &bindingKey) {
-            writeRetroBinding(out, retroKey, bindings.value(bindingKey).toMap());
-        };
+        for (int player = 1; player <= 4; ++player) {
+            out << "input_player" << player << "_joypad_index = \"" << (player - 1) << "\"\n";
 
-        writeMapped(QStringLiteral("up"), QStringLiteral("up"));
-        writeMapped(QStringLiteral("down"), QStringLiteral("down"));
-        writeMapped(QStringLiteral("left"), QStringLiteral("left"));
-        writeMapped(QStringLiteral("right"), QStringLiteral("right"));
-        writeMapped(QStringLiteral("b"), QStringLiteral("a"));
-        writeMapped(QStringLiteral("a"), QStringLiteral("b"));
-        writeMapped(QStringLiteral("y"), QStringLiteral("x"));
-        writeMapped(QStringLiteral("x"), QStringLiteral("y"));
-        writeMapped(QStringLiteral("select"), QStringLiteral("select"));
-        writeMapped(QStringLiteral("start"), QStringLiteral("start"));
-        writeMapped(QStringLiteral("l"), QStringLiteral("l"));
-        writeMapped(QStringLiteral("r"), QStringLiteral("r"));
-        writeMapped(QStringLiteral("l2"), QStringLiteral("l2"));
-        writeMapped(QStringLiteral("r2"), QStringLiteral("r2"));
-        writeMapped(QStringLiteral("l3"), QStringLiteral("l3"));
-        writeMapped(QStringLiteral("r3"), QStringLiteral("r3"));
+            const auto writeMapped = [&](const QString &retroKey, const QString &bindingKey) {
+                writeRetroBinding(out, player, retroKey, bindings.value(bindingKey).toMap());
+            };
 
+            writeMapped(QStringLiteral("up"), QStringLiteral("up"));
+            writeMapped(QStringLiteral("down"), QStringLiteral("down"));
+            writeMapped(QStringLiteral("left"), QStringLiteral("left"));
+            writeMapped(QStringLiteral("right"), QStringLiteral("right"));
+            writeMapped(QStringLiteral("b"), QStringLiteral("a"));
+            writeMapped(QStringLiteral("a"), QStringLiteral("b"));
+            writeMapped(QStringLiteral("y"), QStringLiteral("x"));
+            writeMapped(QStringLiteral("x"), QStringLiteral("y"));
+            writeMapped(QStringLiteral("select"), QStringLiteral("select"));
+            writeMapped(QStringLiteral("start"), QStringLiteral("start"));
+            writeMapped(QStringLiteral("l"), QStringLiteral("l"));
+            writeMapped(QStringLiteral("r"), QStringLiteral("r"));
+            writeMapped(QStringLiteral("l2"), QStringLiteral("l2"));
+            writeMapped(QStringLiteral("r2"), QStringLiteral("r2"));
+            writeMapped(QStringLiteral("l3"), QStringLiteral("l3"));
+            writeMapped(QStringLiteral("r3"), QStringLiteral("r3"));
+        }
     }
 
     if (detectHeadlessMode() && hasPiHeadphonesAudioDevice()) {

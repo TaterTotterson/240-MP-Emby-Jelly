@@ -125,7 +125,20 @@ QString MoonlightBackend::bundledMoonlightPath() const
 {
     const QString path = QDir(m_appRoot).absoluteFilePath(
         QStringLiteral("vendor/moonlight-sdl/bin/moonlight"));
-    return QFileInfo(path).isExecutable() ? path : QString();
+    const QFileInfo info(path);
+    if (!info.isExecutable())
+        return QString();
+#ifdef Q_OS_LINUX
+    QProcess ldd;
+    ldd.start(QStringLiteral("ldd"), QStringList{path});
+    if (!ldd.waitForFinished(1500))
+        return QString();
+    const QString output = QString::fromUtf8(ldd.readAllStandardOutput())
+        + QString::fromUtf8(ldd.readAllStandardError());
+    if (output.contains(QStringLiteral("not found")))
+        return QString();
+#endif
+    return path;
 }
 
 QString MoonlightBackend::moonlightLaunchHelperPath() const
@@ -235,6 +248,60 @@ void MoonlightBackend::clearAppCache() const
     QFile::remove(appCachePath());
 }
 
+void MoonlightBackend::removeMoonlightPairingState() const
+{
+    clearAppCache();
+
+    const QString root = QFileInfo(moonlightRoot()).absoluteFilePath();
+    const QString dataRoot = QFileInfo(m_dataRoot).absoluteFilePath();
+    if (root.isEmpty() || dataRoot.isEmpty())
+        return;
+
+    const QStringList paths{
+        QDir(root).absoluteFilePath(QStringLiteral("config")),
+        QDir(root).absoluteFilePath(QStringLiteral("data")),
+        QDir(root).absoluteFilePath(QStringLiteral("cache")),
+        QDir(dataRoot).absoluteFilePath(QStringLiteral(".config/moonlight")),
+        QDir(dataRoot).absoluteFilePath(QStringLiteral(".cache/moonlight")),
+        QDir(dataRoot).absoluteFilePath(QStringLiteral(".local/share/moonlight")),
+        QDir(dataRoot).absoluteFilePath(QStringLiteral(".config/Moonlight Game Streaming Project")),
+        QDir(dataRoot).absoluteFilePath(QStringLiteral(".cache/Moonlight Game Streaming Project")),
+        QDir(dataRoot).absoluteFilePath(QStringLiteral(".local/share/Moonlight Game Streaming Project")),
+    };
+
+    for (const QString &path : paths) {
+        QFileInfo info(path);
+        if (!info.exists())
+            continue;
+
+        QString absolute = info.canonicalFilePath();
+        if (absolute.isEmpty())
+            absolute = info.absoluteFilePath();
+
+        const bool insideMoonlightRoot = absolute == root
+            || absolute.startsWith(root + QLatin1Char('/'));
+        const bool insideDataRoot = absolute.startsWith(dataRoot + QLatin1Char('/'));
+        if (!insideMoonlightRoot && !insideDataRoot) {
+            qWarning("[MoonlightBackend] refusing to remove unexpected Moonlight state path: %s",
+                     qPrintable(absolute));
+            continue;
+        }
+
+        if (info.isDir()) {
+            QDir dir(absolute);
+            if (!dir.removeRecursively()) {
+                qWarning("[MoonlightBackend] could not remove Moonlight state directory: %s",
+                         qPrintable(absolute));
+            }
+        } else if (!QFile::remove(absolute)) {
+            qWarning("[MoonlightBackend] could not remove Moonlight state file: %s",
+                     qPrintable(absolute));
+        }
+    }
+
+    QDir().mkpath(root);
+}
+
 QString MoonlightBackend::get_auth_state()
 {
     return host().isEmpty() ? QStringLiteral("none") : QStringLiteral("authed");
@@ -312,6 +379,20 @@ void MoonlightBackend::pair_host(const QString &hostValue)
 
     qInfo("[MoonlightBackend] pairing Moonlight host: %s", qPrintable(cleanHost));
     m_pairProcess->start(bin, {QStringLiteral("pair"), cleanHost});
+}
+
+void MoonlightBackend::repair_host(const QString &hostValue)
+{
+    forget_pairing();
+    pair_host(hostValue);
+}
+
+void MoonlightBackend::forget_pairing()
+{
+    cancel_pairing();
+    stop_stream();
+    removeMoonlightPairingState();
+    emit authStateChanged();
 }
 
 void MoonlightBackend::cancel_pairing()

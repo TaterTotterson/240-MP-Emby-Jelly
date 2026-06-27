@@ -6,6 +6,7 @@ Row {
     
     // Custom Properties 
     property url iconSource: "../../assets/images/logo.svg"
+    property real iconHeight: root.sh * 0.05
     property string title: "CRT STATION"
     property string subtitle: ""
 
@@ -14,7 +15,7 @@ Row {
         visible: appBar.iconSource !== ""
         width: iconImg.width
         anchors.verticalCenter: parent.verticalCenter
-        height: root.sh * 0.05 //24
+        height: appBar.iconHeight
         Image {
             visible: false
             id: iconImg

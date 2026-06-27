@@ -71,7 +71,7 @@ FocusScope {
 
         items.push({ type: "settings_category", label: "Appearance", sectionKey: "appearance" })
         items.push({ type: "settings_category", label: "Features", sectionKey: "features" })
-        items.push({ type: "settings_category", label: "Bluetooth", sectionKey: "bluetooth" })
+        items.push({ type: "settings_category", label: "Gamepad", sectionKey: "bluetooth" })
         items.push({ type: "settings_category", label: "System", sectionKey: "system" })
 
         settingsItems = items
@@ -82,7 +82,7 @@ FocusScope {
         if (sectionKey === "appearance") return "Appearance"
         if (sectionKey === "system") return "System"
         if (sectionKey === "features") return "Features"
-        if (sectionKey === "bluetooth") return "Bluetooth"
+        if (sectionKey === "bluetooth") return "Gamepad"
         return "Settings"
     }
 
@@ -207,14 +207,45 @@ FocusScope {
 
     function buildBluetoothItems(items) {
         var bt = settingsRoot.refreshBluetoothInfo()
+        var knownDevices = []
+        var devices = bt.devices || []
+        for (var d = 0; d < devices.length; d++) {
+            var device = devices[d]
+            if (device.connected || device.paired)
+                knownDevices.push(device)
+        }
+
         items.push({
             type: "bluetooth_toggle",
-            label: "Bluetooth",
+            label: "Gamepad",
             value: settingsRoot.bluetoothRowValue(bt),
             available: !!bt.available,
             enabled: !!bt.enabled,
             powered: !!bt.powered
         })
+        items.push({ type: "section", label: "Paired Controllers:" })
+        if (knownDevices.length === 0) {
+            items.push({ type: "status", label: "No Paired Controllers", value: "" })
+        } else {
+            for (var k = 0; k < knownDevices.length; k++) {
+                var known = knownDevices[k]
+                items.push({
+                    type: "bluetooth_known",
+                    label: settingsRoot.bluetoothDeviceName(known),
+                    value: settingsRoot.bluetoothActionValue(known),
+                    address: known.address || "",
+                    connected: !!known.connected,
+                    paired: !!known.paired,
+                    trusted: !!known.trusted
+                })
+                items.push({
+                    type: "bluetooth_forget",
+                    label: "Remove " + settingsRoot.bluetoothDeviceName(known),
+                    value: "",
+                    address: known.address || ""
+                })
+            }
+        }
         items.push({
             type: "action",
             action: "scan_bluetooth",
@@ -266,6 +297,14 @@ FocusScope {
         if (name.length > 18)
             return name.slice(0, 15) + "..."
         return name
+    }
+
+    function bluetoothActionValue(device) {
+        if (!device) return ""
+        if (device.connected) return "CONNECTED"
+        if (device.paired) return "CONNECT"
+        if (device.trusted) return "PAIR AGAIN"
+        return "PAIR"
     }
 
     function isSelectableRow(row) {
@@ -325,7 +364,7 @@ FocusScope {
         settingsMode = "bluetooth_scan"
         activeSection = "bluetooth"
         var items = []
-        items.push({ type: "section", label: "Bluetooth Scan:" })
+        items.push({ type: "section", label: "Gamepad Scan:" })
 
         if (bluetoothScanning) {
             items.push({ type: "status", label: "Scanning Controllers", value: "..." })
@@ -338,7 +377,7 @@ FocusScope {
                 items.push({
                     type: "bluetooth_device",
                     label: settingsRoot.bluetoothDeviceName(device),
-                    value: device.status || "PAIR",
+                    value: settingsRoot.bluetoothActionValue(device),
                     address: device.address || "",
                     connected: !!device.connected,
                     paired: !!device.paired,
@@ -446,8 +485,42 @@ FocusScope {
         if (settingsMode === "bluetooth_scan")
             buildBluetoothScanModel(result.message || "CONTROLLER READY.", rowIndex)
         else
-            buildModel()
+            buildSectionModel("bluetooth", rowIndex)
         selectSettingsIndex(rowIndex)
+    }
+
+    function connectBluetooth(rowIndex, row) {
+        if (!row || !row.address) return
+
+        if (row.connected) {
+            if (settingsMode === "bluetooth_scan")
+                buildBluetoothScanModel("CONTROLLER CONNECTED.", rowIndex)
+            else
+                buildSectionModel("bluetooth", rowIndex)
+            selectSettingsIndex(rowIndex)
+            return
+        }
+
+        replaceSettingsRow(rowIndex, { value: "..." })
+        var result = appCore.connectBluetoothDevice(row.address)
+        bluetoothInfo = result
+        bluetoothDevices = result.devices || bluetoothDevices
+        if (settingsMode === "bluetooth_scan")
+            buildBluetoothScanModel(result.message || "CONTROLLER CONNECTED.", rowIndex)
+        else
+            buildSectionModel("bluetooth", rowIndex)
+        selectSettingsIndex(rowIndex)
+    }
+
+    function activateBluetoothDevice(rowIndex, row) {
+        if (!row || !row.address) return
+
+        if (row.paired || row.connected) {
+            connectBluetooth(rowIndex, row)
+            return
+        }
+
+        pairBluetooth(rowIndex, row)
     }
 
     function forgetBluetooth(rowIndex, row) {
@@ -460,7 +533,7 @@ FocusScope {
         if (settingsMode === "bluetooth_scan")
             buildBluetoothScanModel(result.message || "CONTROLLER FORGOTTEN.", rowIndex)
         else
-            buildModel()
+            buildSectionModel("bluetooth", rowIndex)
         selectSettingsIndex(rowIndex)
     }
 
@@ -589,9 +662,10 @@ FocusScope {
     // Header
     AppBar {
         iconSource: "../../assets/images/settings.svg"
+        iconHeight: root.sh * 0.075
         title: "Settings"
         subtitle: settingsMode === "bluetooth_scan"
-            ? "Bluetooth Scan"
+            ? "Gamepad Scan"
             : (settingsMode === "section" ? sectionTitle(activeSection) : root.appVersion)
         anchors.top: parent.top
         anchors.left: parent.left
@@ -676,8 +750,8 @@ FocusScope {
                 var fanOpts = row.options
                 var fanIdx = fanOpts.indexOf(row.value)
                 settingsRoot.setListSingleValue(currentIndex, row, fanOpts[(fanIdx + 1) % fanOpts.length])
-            } else if (row && row.type === "bluetooth_device") {
-                settingsRoot.pairBluetooth(currentIndex, row)
+            } else if (row && (row.type === "bluetooth_device" || row.type === "bluetooth_known")) {
+                settingsRoot.activateBluetoothDevice(currentIndex, row)
             } else if (row && row.type === "bluetooth_forget") {
                 settingsRoot.forgetBluetooth(currentIndex, row)
             }
@@ -767,7 +841,7 @@ FocusScope {
                         font.pixelSize:root.sh * 0.05 //24
                     }
                     Text {
-                        visible: modelData.type === "settings_category" || modelData.type === "submenu" || modelData.type === "list_single" || modelData.type === "clock_part" || (modelData.type === "argon_fan" && modelData.available === true) || modelData.type === "action" || modelData.type === "bluetooth_device" || modelData.type === "bluetooth_forget" || (modelData.type === "ssh_toggle" && modelData.available === true) || (modelData.type === "bluetooth_toggle" && modelData.available === true)
+                        visible: modelData.type === "settings_category" || modelData.type === "submenu" || modelData.type === "list_single" || modelData.type === "clock_part" || (modelData.type === "argon_fan" && modelData.available === true) || modelData.type === "action" || modelData.type === "bluetooth_device" || modelData.type === "bluetooth_known" || modelData.type === "bluetooth_forget" || (modelData.type === "ssh_toggle" && modelData.available === true) || (modelData.type === "bluetooth_toggle" && modelData.available === true)
                         text: "\u25BA"
                         color: settingsList.currentIndex === index ? root.surfaceColor : root.tertiaryColor
                         font.family: root.globalFont
