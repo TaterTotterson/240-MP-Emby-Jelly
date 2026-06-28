@@ -381,9 +381,6 @@ class BluetoothControl:
         services = props.get("ServicesResolved", True)
         return connected and bool(services)
 
-    def is_disconnected(self, path):
-        return not bool(self.device_props(path).get("Connected", False))
-
     def input_device_ready(self, address):
         wanted = address.lower()
         input_root = "/sys/class/input"
@@ -458,17 +455,28 @@ class BluetoothControl:
         if not self.wait_for_device(path, lambda: self.is_ready(path), 8):
             raise ControlError("controller did not finish connecting")
 
+    def connect_input_profile(self, path, timeout_seconds=10):
+        dev = dbus.Interface(self.bus.get_object(BLUEZ, path), DEVICE)
+        result = self.call_async(dev.ConnectProfile, timeout_seconds, dbus.String(HID_UUID))
+        if result["timeout"]:
+            return False
+        if result["error"]:
+            name = getattr(result["error"], "get_dbus_name", lambda: "")()
+            return name in {
+                "org.bluez.Error.AlreadyConnected",
+                "org.bluez.Error.AlreadyExists",
+            }
+        return True
+
     def settle_input_after_pairing(self, path, address):
         if self.wait_for_input_device(address):
             return
 
         # Some XInput/Switch/Android-mode controllers report connected before
-        # BlueZ has created a usable HID input device. Only bounce the
-        # connection when that input node did not appear after first pairing.
-        self.disconnect_device(path)
-        self.wait_for_device(path, lambda: self.is_disconnected(path), 6)
-        loop_for_seconds(1.0)
-        self.connect_device(path, timeout_seconds=20)
+        # BlueZ has created a usable HID input device. Ask BlueZ to attach the
+        # HID profile, but never fail pairing if the controller needs a later
+        # reconnect to expose its input node.
+        self.connect_input_profile(path)
         self.wait_for_input_device(address, 8)
 
     def pair_connect(self, address):

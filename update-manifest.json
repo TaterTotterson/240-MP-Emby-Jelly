@@ -1,17 +1,14 @@
 {
-  "version": "v1.1.0",
-  "app_version": "1.1.0",
+  "version": "v1.1.1",
+  "app_version": "1.1.1",
   "channel": "main",
   "repo": "https://github.com/TaterTotterson/CRT-Station",
   "manifest_url": "https://raw.githubusercontent.com/TaterTotterson/CRT-Station/main/update-manifest.json",
-  "binary_archive": "https://github.com/TaterTotterson/CRT-Station/releases/download/v1.1.0/240-MP-v1.1.0-linux-arm64.tar.gz",
-  "source_archive": "https://github.com/TaterTotterson/CRT-Station/archive/refs/tags/v1.1.0.tar.gz",
+  "binary_archive": "https://github.com/TaterTotterson/CRT-Station/releases/download/v1.1.1/240-MP-v1.1.1-linux-arm64.tar.gz",
+  "source_archive": "https://github.com/TaterTotterson/CRT-Station/archive/refs/tags/v1.1.1.tar.gz",
   "notes": [
-    "Loads the Linux i2c-dev interface needed for Argon ONE fan control.",
-    "Persists i2c-dev through /etc/modules-load.d so the fan remains controllable after reboot.",
-    "Applies the I2C device-node fix through both fresh images and built-in updater installs.",
-    "Keeps the Argon fan helper compatible with register-based and legacy Argon fan controllers.",
-    "Waits for newly paired Gamepad controllers to expose a Linux input device and only reconnects when XInput, Android, or Switch modes report connected too early.",
-    "Adds Home to the controller mapper so the back-to-CRT-Station button can be corrected on controllers with unusual button layouts."
+    "Fixes a Gamepad pairing regression where the post-pair input settle step could turn a successful pair into org.bluez.Error.Failed.",
+    "Keeps newly paired controllers trusted and connected even when their Linux input device appears only after a later reconnect.",
+    "Uses a best-effort HID profile attach instead of disconnecting controllers immediately after pairing."
   ]
 }
