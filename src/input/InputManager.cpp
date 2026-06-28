@@ -177,7 +177,8 @@ bool InputManager::saveControllerMapping(const QVariantMap &mapping)
         {QStringLiteral("b"), QStringLiteral("select")},
         {QStringLiteral("a"), QStringLiteral("back")},
         {QStringLiteral("menu"), QStringLiteral("menu")},
-        {QStringLiteral("start"), QStringLiteral("play_pause")}
+        {QStringLiteral("start"), QStringLiteral("play_pause")},
+        {QStringLiteral("home"), QStringLiteral("home")}
     };
 
     QString generated;
@@ -458,6 +459,7 @@ void InputManager::loadDefaultMapping() {
     m_buttonMap[SDL_CONTROLLER_BUTTON_B]             = Action::Back;
     m_buttonMap[SDL_CONTROLLER_BUTTON_BACK]          = Action::Back;
     m_buttonMap[SDL_CONTROLLER_BUTTON_START]         = Action::PlayPause;
+    m_buttonMap[SDL_CONTROLLER_BUTTON_GUIDE]         = Action::Home;
     m_buttonMap[SDL_CONTROLLER_BUTTON_LEFTSHOULDER]  = Action::Left;
     m_buttonMap[SDL_CONTROLLER_BUTTON_RIGHTSHOULDER] = Action::Right;
     m_axisMap[SDL_CONTROLLER_AXIS_LEFTX] = { Action::Left, Action::Right };
@@ -471,7 +473,7 @@ void InputManager::loadDefaultMapping() {
     m_joystickButtonMap[5]  = Action::Right;      // R1
     m_joystickButtonMap[8]  = Action::Back;       // select/share
     m_joystickButtonMap[9]  = Action::PlayPause;  // start/options
-    // Raw guide/PS buttons are handled as Home in handleJoystickButton().
+    m_joystickButtonMap[10] = Action::Home;       // guide/home
     m_joystickAxisMap[0] = { Action::Left, Action::Right };
     m_joystickAxisMap[1] = { Action::Up,   Action::Down  };
     m_joystickAxisMap[6] = { Action::Left, Action::Right };
@@ -492,6 +494,7 @@ InputManager::Action InputManager::actionFromString(const QString &name, bool *o
     if (name == "back")       return Action::Back;
     if (name == "menu")       return Action::Menu;
     if (name == "play_pause" || name == "playpause") return Action::PlayPause;
+    if (name == "home")       return Action::Home;
     if (name == "none")       return Action::None;
     *ok = false;
     return Action::None;
@@ -612,10 +615,31 @@ void InputManager::loadUserMapping() {
         return;
     }
 
+    QStringList rawLines;
     QTextStream in(&f);
+    while (!in.atEnd())
+        rawLines.append(in.readLine());
+
+    bool hasHomeBinding = false;
+    for (QString line : std::as_const(rawLines)) {
+        const int hash = line.indexOf('#');
+        if (hash >= 0)
+            line.truncate(hash);
+        line = line.simplified();
+        const QStringList parts = line.split(' ');
+        if (parts.size() == 2 && parts[1].compare(QStringLiteral("home"), Qt::CaseInsensitive) == 0) {
+            hasHomeBinding = true;
+            break;
+        }
+    }
+
+    if (hasHomeBinding) {
+        m_buttonMap.remove(SDL_CONTROLLER_BUTTON_GUIDE);
+        m_joystickButtonMap.remove(10);
+    }
+
     int lineNo = 0, applied = 0;
-    while (!in.atEnd()) {
-        QString line = in.readLine();
+    for (QString line : std::as_const(rawLines)) {
         ++lineNo;
         int hash = line.indexOf('#');
         if (hash >= 0)
@@ -1175,6 +1199,7 @@ void InputManager::ensureDefaultControllerMapping(SDL_JoystickID which,
     addAxis(QStringLiteral("r2"),       QStringLiteral("RIGHT TRIGGER"),  SDL_CONTROLLER_AXIS_TRIGGERRIGHT, +1);
     addButton(QStringLiteral("l3"),     QStringLiteral("LEFT STICK"),     SDL_CONTROLLER_BUTTON_LEFTSTICK);
     addButton(QStringLiteral("r3"),     QStringLiteral("RIGHT STICK"),    SDL_CONTROLLER_BUTTON_RIGHTSTICK);
+    addButton(QStringLiteral("home"),   QStringLiteral("HOME"),           SDL_CONTROLLER_BUTTON_GUIDE);
 
     if (bindings.isEmpty())
         return;
@@ -1228,6 +1253,7 @@ void InputManager::ensureDefaultJoystickMapping(SDL_JoystickID which)
     addButton(QStringLiteral("start"),  QStringLiteral("START"),          9);
     addButton(QStringLiteral("l3"),     QStringLiteral("LEFT STICK"),     11);
     addButton(QStringLiteral("r3"),     QStringLiteral("RIGHT STICK"),    12);
+    addButton(QStringLiteral("home"),   QStringLiteral("HOME"),           10);
 
     noteActiveController(which);
     if (saveControllerMapping({{QStringLiteral("bindings"), bindings}}))
@@ -1333,15 +1359,6 @@ void InputManager::handleButton(SDL_JoystickID which, Uint8 button, bool pressed
         return;
     }
 
-    if (button == SDL_CONTROLLER_BUTTON_GUIDE) {
-        m_controllerInputSeen.insert(which);
-        noteActiveController(which);
-        setLastInputDevice(QStringLiteral("gamepad"));
-        if (pressed)
-            emit homeRequested();
-        return;
-    }
-
     const Action a = m_buttonMap.value(button, Action::None);
     if (a == Action::None)
         return;
@@ -1423,14 +1440,6 @@ void InputManager::handleJoystickButton(SDL_JoystickID which, Uint8 button, bool
             return;
         const QVariantMap input = mappingInputForJoystickButton(button);
         captureMappingInput(input, which, false);
-        return;
-    }
-
-    if (button == 10) {
-        noteActiveController(which);
-        setLastInputDevice(QStringLiteral("gamepad"));
-        if (pressed)
-            emit homeRequested();
         return;
     }
 
@@ -1572,6 +1581,14 @@ void InputManager::pressAction(Action a, const QString &device) {
     if (a == Action::None)
         return;
     setLastInputDevice(device);
+    if (a == Action::Home) {
+        m_repeatDelayTimer.stop();
+        m_repeatTimer.stop();
+        m_heldDirection = Action::None;
+        emit homeRequested();
+        return;
+    }
+
     deliverPress(a, false);
 
     if (isDirectional(a)) {
@@ -1583,7 +1600,7 @@ void InputManager::pressAction(Action a, const QString &device) {
 }
 
 void InputManager::releaseAction(Action a) {
-    if (a == Action::None)
+    if (a == Action::None || a == Action::Home)
         return;
     if (m_heldDirection == a) {
         m_heldDirection = Action::None;
@@ -1656,6 +1673,7 @@ int InputManager::qtKeyForAction(Action a) {
     case Action::Back:      return Qt::Key_Escape;
     case Action::Menu:      return Qt::Key_Menu;
     case Action::PlayPause: return Qt::Key_Space;
+    case Action::Home:      return 0;
     case Action::None:      break;
     }
     return 0;
@@ -1672,6 +1690,7 @@ QString InputManager::mpvKeyForAction(Action a) {
     case Action::Back:      return QStringLiteral("ESC");
     case Action::Menu:      return QStringLiteral("MENU");
     case Action::PlayPause: return QStringLiteral("SPACE");
+    case Action::Home:      return QString();
     case Action::None:      break;
     }
     return QString();

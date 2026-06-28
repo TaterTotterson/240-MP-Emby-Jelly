@@ -1,15 +1,17 @@
 {
-  "version": "v1.0.18",
-  "app_version": "1.0.18",
+  "version": "v1.1.0",
+  "app_version": "1.1.0",
   "channel": "main",
   "repo": "https://github.com/TaterTotterson/CRT-Station",
   "manifest_url": "https://raw.githubusercontent.com/TaterTotterson/CRT-Station/main/update-manifest.json",
-  "binary_archive": "https://github.com/TaterTotterson/CRT-Station/releases/download/v1.0.18/240-MP-v1.0.18-linux-arm64.tar.gz",
-  "source_archive": "https://github.com/TaterTotterson/CRT-Station/archive/refs/tags/v1.0.18.tar.gz",
+  "binary_archive": "https://github.com/TaterTotterson/CRT-Station/releases/download/v1.1.0/240-MP-v1.1.0-linux-arm64.tar.gz",
+  "source_archive": "https://github.com/TaterTotterson/CRT-Station/archive/refs/tags/v1.1.0.tar.gz",
   "notes": [
-    "Updates Argon ONE fan control to match Argon's official register-plus-legacy I2C fan protocol.",
-    "Fixes fixed-percent fan settings that could show in Settings without changing the physical fan speed.",
-    "Keeps Auto, Off, and fixed fan speeds update-safe through the built-in updater.",
-    "Documents Argon ONE fan control in the install notes."
+    "Loads the Linux i2c-dev interface needed for Argon ONE fan control.",
+    "Persists i2c-dev through /etc/modules-load.d so the fan remains controllable after reboot.",
+    "Applies the I2C device-node fix through both fresh images and built-in updater installs.",
+    "Keeps the Argon fan helper compatible with register-based and legacy Argon fan controllers.",
+    "Waits for newly paired Gamepad controllers to expose a Linux input device and only reconnects when XInput, Android, or Switch modes report connected too early.",
+    "Adds Home to the controller mapper so the back-to-CRT-Station button can be corrected on controllers with unusual button layouts."
   ]
 }

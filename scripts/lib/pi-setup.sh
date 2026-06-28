@@ -732,10 +732,7 @@ pi240_enable_i2c() {
         else
             sudo sed -i -E 's|^[[:space:]]*#?[[:space:]]*dtparam=i2c_arm=.*$|dtparam=i2c_arm=on|' "$config_txt"
         fi
-        return 0
-    fi
-
-    if pi240_is_root; then
+    elif pi240_is_root; then
         {
             printf '\n# --- CRT Station Argon ONE fan control ---\n'
             printf 'dtparam=i2c_arm=on\n'
@@ -746,6 +743,12 @@ pi240_enable_i2c() {
             printf 'dtparam=i2c_arm=on\n'
         } | sudo tee -a "$config_txt" >/dev/null
     fi
+
+    pi240_install_file_from_stdin /etc/modules-load.d/240mp-i2c.conf 0644 <<'MODULES_LOAD'
+i2c-dev
+MODULES_LOAD
+
+    pi240_root modprobe i2c-dev >/dev/null 2>&1 || true
 }
 
 pi240_install_boot_splash() {

@@ -4,6 +4,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 
 ACTION = sys.argv[1] if len(sys.argv) > 1 else "status"
 ADDRESS = sys.argv[2].upper() if len(sys.argv) > 2 else ""
@@ -380,6 +381,44 @@ class BluetoothControl:
         services = props.get("ServicesResolved", True)
         return connected and bool(services)
 
+    def is_disconnected(self, path):
+        return not bool(self.device_props(path).get("Connected", False))
+
+    def input_device_ready(self, address):
+        wanted = address.lower()
+        input_root = "/sys/class/input"
+        try:
+            names = os.listdir(input_root)
+        except Exception:
+            return False
+
+        for name in names:
+            if not name.startswith("input"):
+                continue
+            base = os.path.join(input_root, name)
+            uniq_path = os.path.join(base, "uniq")
+            try:
+                with open(uniq_path, "r", encoding="utf-8") as fp:
+                    uniq = fp.read().strip().lower()
+            except Exception:
+                continue
+            if uniq != wanted:
+                continue
+            try:
+                if any(entry.startswith("event") for entry in os.listdir(base)):
+                    return True
+            except Exception:
+                return True
+        return False
+
+    def wait_for_input_device(self, address, timeout_seconds=8):
+        deadline = time.monotonic() + timeout_seconds
+        while time.monotonic() < deadline:
+            if self.input_device_ready(address):
+                return True
+            time.sleep(0.25)
+        return self.input_device_ready(address)
+
     def trust(self, path):
         self.set_prop(path, DEVICE, "Trusted", dbus.Boolean(True))
 
@@ -419,6 +458,19 @@ class BluetoothControl:
         if not self.wait_for_device(path, lambda: self.is_ready(path), 8):
             raise ControlError("controller did not finish connecting")
 
+    def settle_input_after_pairing(self, path, address):
+        if self.wait_for_input_device(address):
+            return
+
+        # Some XInput/Switch/Android-mode controllers report connected before
+        # BlueZ has created a usable HID input device. Only bounce the
+        # connection when that input node did not appear after first pairing.
+        self.disconnect_device(path)
+        self.wait_for_device(path, lambda: self.is_disconnected(path), 6)
+        loop_for_seconds(1.0)
+        self.connect_device(path, timeout_seconds=20)
+        self.wait_for_input_device(address, 8)
+
     def pair_connect(self, address):
         self.ensure_enabled()
         path, props = self.discover_device(address, 10)
@@ -427,6 +479,8 @@ class BluetoothControl:
             self.pair_device(path)
             self.trust(path)
             self.connect_device(path)
+            if not was_paired:
+                self.settle_input_after_pairing(path, address)
         except Exception:
             if not was_paired:
                 self.remove_device(path)
