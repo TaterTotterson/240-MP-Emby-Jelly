@@ -25,6 +25,12 @@
       "default": "ON"
     },
     {
+      "key": "tv_mode_commercials",
+      "label": "TV MODE COMMERCIALS",
+      "type": "toggle",
+      "default": "ON"
+    },
+    {
       "key": "remove_playlist_id",
       "label": "PLAYLIST TO REMOVE",
       "type": "list_single",

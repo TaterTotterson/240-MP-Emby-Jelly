@@ -17,7 +17,14 @@ FocusScope {
     property string playlistTitle: "YOUTUBE PLAYLIST"
     property string playlistInput: ""
     property var playlists: []
+    property var commercialPlaylists: []
     property var playlistRows: []
+    property var storePlaylists: [
+        {
+            title: "PUBLIC ACCESS STARTER",
+            input: "PLejgWcMCJnnOxUaRCicf7-m3tz7flNgBU"
+        }
+    ]
     property var currentPlaylist: ({})
     property var videos: []
     property var videoRows: []
@@ -28,7 +35,30 @@ FocusScope {
     property bool loadingPlaylist: false
     property bool addingPlaylist: false
     property bool stoppingPlayback: false
+    property string addPlaylistKind: "regular"
+    property string pendingPlaylistKind: "regular"
     property string pendingPlaylistInput: ""
+    property bool tvModeActive: false
+    property bool tvLoading: false
+    property bool tvTuningStaticVisible: false
+    property bool tvStoppingForTune: false
+    property bool tvStreamStarted: false
+    property bool backgroundStaticVisible: (root.staticBackgroundEnabled && mode !== "playing" && mode !== "tv")
+                                           || (mode === "tv" && tvTuningStaticVisible)
+    property int tvCurrentChannelIndex: 0
+    property int tvCurrentScheduleIndex: -1
+    property int tvPreviousChannelIndex: -1
+    property int tvResolveSerial: 0
+    property string tvPendingResolveId: ""
+    property int tvTuneDelayMs: 1200
+    property double tvStartedAtMs: 0
+    property var tvChannels: []
+    property var tvCommercialPool: []
+    property var tvLoadQueue: []
+    property var tvCurrentLoad: ({})
+    property var tvPendingPlayback: ({})
+    property var tvPendingChannels: []
+    property var tvPendingCommercials: []
 
     focus: true
 
@@ -43,20 +73,56 @@ FocusScope {
         return value === true || value === "ON" || value === "true"
     }
 
+    function tvCommercialsEnabled() {
+        var value = settingValue("tv_mode_commercials", true)
+        return value === true || value === "ON" || value === "true" || value === "1"
+    }
+
     function playbackQuality() {
         return settingValue("playback_quality", "360p")
     }
 
+    function listSetting(key) {
+        var value = appCore.get_setting(moduleId, key)
+        return Array.isArray(value) ? value : []
+    }
+
+    function loadCommercialPlaylists() {
+        var saved = listSetting("commercial_playlists")
+        var rows = []
+        var seen = ({})
+        for (var i = 0; i < saved.length; i++) {
+            var item = Object.assign({}, saved[i] || ({}))
+            var input = (item.input || item.url || "").trim()
+            if (input === "" || seen[input] === true)
+                continue
+            seen[input] = true
+            item.input = input
+            item.title = item.title || ("COMMERCIALS " + (rows.length + 1))
+            rows.push(item)
+        }
+        commercialPlaylists = rows
+    }
+
     function buildPlaylistRows() {
         var rows = []
+        rows.push({ rowType: "tvmode", title: "TV MODE" })
         for (var i = 0; i < playlists.length; i++) {
             var item = Object.assign({}, playlists[i])
             item.rowType = "playlist"
             rows.push(item)
         }
-        if (playlists.length > 0)
+        for (var j = 0; j < commercialPlaylists.length; j++) {
+            var commercial = Object.assign({}, commercialPlaylists[j])
+            commercial.rowType = "commercial"
+            commercial.title = "AD  " + (commercial.title || ("COMMERCIALS " + (j + 1)))
+            rows.push(commercial)
+        }
+        if (playlists.length > 0 || commercialPlaylists.length > 0)
             rows.push({ rowType: "refresh", title: "REFRESH ALL PLAYLISTS" })
         rows.push({ rowType: "add", title: "+ ADD PLAYLIST" })
+        rows.push({ rowType: "add_commercial", title: "+ ADD COMMERCIAL PLAYLIST" })
+        rows.push({ rowType: "store", title: "PLAYLIST STORE" })
         playlistRows = rows
     }
 
@@ -76,7 +142,15 @@ FocusScope {
     }
 
     function loadPlaylistLibrary(preferredIndex) {
+        tvTuneTimer.stop()
+        cancelTvResolve()
+        tvModeActive = false
+        tvLoading = false
+        tvTuningStaticVisible = false
+        tvStoppingForTune = false
+        tvCurrentScheduleIndex = -1
         playlists = youtubePlaylistBackend.get_saved_playlists()
+        loadCommercialPlaylists()
         buildPlaylistRows()
         mode = "library"
         var idx = preferredIndex === undefined ? currentPlaylistIndex : preferredIndex
@@ -84,14 +158,25 @@ FocusScope {
         currentPlaylistIndex = libraryList.currentIndex
     }
 
-    function showAdd(message) {
+    function showAdd(message, kind) {
         mode = "add"
         addingPlaylist = false
+        addPlaylistKind = kind || "regular"
+        pendingPlaylistKind = addPlaylistKind
         pendingPlaylistInput = ""
         addLookupTimer.stop()
         statusText = message || "ADD PLAYLIST"
         playlistField.text = ""
         addFocusTimer.restart()
+    }
+
+    function showStore(message) {
+        mode = "store"
+        addingPlaylist = false
+        pendingPlaylistInput = ""
+        addLookupTimer.stop()
+        statusText = message || "PLAYLIST STORE"
+        storeList.currentIndex = Math.max(0, Math.min(storeList.currentIndex, storePlaylists.length - 1))
     }
 
     function cancelAdd() {
@@ -113,8 +198,16 @@ FocusScope {
         return true
     }
 
+    function saveCommercialPlaylistRows(nextCommercials) {
+        appCore.save_setting(moduleId, "commercial_playlists", nextCommercials)
+        commercialPlaylists = nextCommercials
+        buildPlaylistRows()
+        return true
+    }
+
     function updateCurrentPlaylistTitle(title) {
         title = (title || "").trim()
+        if (!currentPlaylist || currentPlaylist.rowType !== "playlist") return
         if (title === "" || !currentPlaylist.url) return
 
         var changed = false
@@ -133,13 +226,15 @@ FocusScope {
         }
     }
 
-    function addPlaylist(inputOverride) {
+    function addPlaylist(inputOverride, kindOverride) {
         if (addingPlaylist) return
         var value = ((inputOverride !== undefined ? inputOverride : playlistField.text) || "").trim()
         playlistField.text = value
+        pendingPlaylistKind = kindOverride || addPlaylistKind || "regular"
         if (value === "") {
             statusText = "ENTER PLAYLIST CODE"
-            playlistField.forceActiveFocus()
+            if (mode === "add")
+                playlistField.forceActiveFocus()
             return
         }
 
@@ -159,15 +254,21 @@ FocusScope {
         if (!info || info.ok !== true || !info.url) {
             statusText = (info && info.message) ? info.message : "PLAYLIST LOOKUP FAILED - TRY AGAIN"
             playlistField.text = value || playlistField.text
-            playlistField.forceActiveFocus()
-            playlistField.selectAll()
+            if (mode === "add") {
+                playlistField.forceActiveFocus()
+                playlistField.selectAll()
+            } else {
+                mode = "message"
+            }
             return
         }
 
-        for (var i = 0; i < playlists.length; i++) {
-            if (playlists[i].url === info.url) {
+        var isCommercial = pendingPlaylistKind === "commercial"
+        var targetPlaylists = isCommercial ? commercialPlaylists : playlists
+        for (var i = 0; i < targetPlaylists.length; i++) {
+            if (targetPlaylists[i].url === info.url) {
                 statusText = "PLAYLIST ALREADY ADDED"
-                loadPlaylistLibrary(i)
+                loadPlaylistLibrary(isCommercial ? playlists.length + i + 1 : i + 1)
                 return
             }
         }
@@ -176,11 +277,12 @@ FocusScope {
             id: info.id || info.url,
             input: info.input || value,
             url: info.url,
-            title: info.title || ("PLAYLIST " + (playlists.length + 1))
+            title: info.title || ((isCommercial ? "COMMERCIALS " : "PLAYLIST ") + (targetPlaylists.length + 1))
         }
-        var next = playlists.slice()
+        var next = targetPlaylists.slice()
         next.push(item)
-        if (!savePlaylistRows(next)) {
+        var saved = isCommercial ? saveCommercialPlaylistRows(next) : savePlaylistRows(next)
+        if (!saved) {
             mode = "add"
             statusText = "COULD NOT SAVE PLAYLIST"
             playlistField.text = value
@@ -188,15 +290,27 @@ FocusScope {
             playlistField.selectAll()
             return
         }
-        statusText = "PLAYLIST ADDED"
-        loadPlaylistLibrary(next.length - 1)
+        statusText = isCommercial ? "COMMERCIAL PLAYLIST ADDED" : "PLAYLIST ADDED"
+        loadPlaylistLibrary(isCommercial ? playlists.length + next.length : next.length)
     }
 
     function selectPlaylist(index) {
         if (index < 0 || index >= playlistRows.length) return
         var row = playlistRows[index] || ({})
+        if (row.rowType === "tvmode") {
+            startTvMode()
+            return
+        }
         if (row.rowType === "add") {
             showAdd("ADD PLAYLIST")
+            return
+        }
+        if (row.rowType === "add_commercial") {
+            showAdd("ADD COMMERCIAL PLAYLIST", "commercial")
+            return
+        }
+        if (row.rowType === "store") {
+            showStore("PLAYLIST STORE")
             return
         }
         if (row.rowType === "refresh") {
@@ -207,7 +321,9 @@ FocusScope {
         currentPlaylistIndex = index
         currentPlaylist = row
         playlistInput = row.input || row.url || ""
-        playlistTitle = row.title || "YOUTUBE PLAYLIST"
+        playlistTitle = row.rowType === "commercial"
+                        ? (row.title || "COMMERCIALS")
+                        : (row.title || "YOUTUBE PLAYLIST")
         loadPlaylist(playlistInput)
     }
 
@@ -220,7 +336,7 @@ FocusScope {
     }
 
     function refreshAllPlaylists() {
-        if (playlists.length === 0) {
+        if (playlists.length === 0 && commercialPlaylists.length === 0) {
             mode = "message"
             statusText = "NO PLAYLISTS SAVED"
             return
@@ -236,6 +352,380 @@ FocusScope {
         mode = "loading"
         statusText = "REFRESHING " + (playlistTitle || "PLAYLIST")
         youtubePlaylistBackend.refresh_playlist(currentPlaylist.input || currentPlaylist.url)
+    }
+
+    function selectStorePlaylist(index) {
+        if (index < 0 || index >= storePlaylists.length) return
+        var row = storePlaylists[index] || ({})
+        statusText = "ADDING " + (row.title || "PLAYLIST")
+        mode = "loading"
+        addPlaylist(row.input || row.url || "", "regular")
+    }
+
+    function padChannelNumber(value) {
+        var text = String(value)
+        return text.length < 2 ? "0" + text : text
+    }
+
+    function shuffleList(items) {
+        var shuffled = (items || []).slice()
+        for (var i = shuffled.length - 1; i > 0; i--) {
+            var j = Math.floor(Math.random() * (i + 1))
+            var tmp = shuffled[i]
+            shuffled[i] = shuffled[j]
+            shuffled[j] = tmp
+        }
+        return shuffled
+    }
+
+    function durationSeconds(item, fallback) {
+        var raw = item ? item.duration : 0
+        var value = typeof raw === "number" ? raw : parseFloat(raw)
+        if (isNaN(value) || value <= 0)
+            value = fallback
+        return Math.max(5, value)
+    }
+
+    function tvChannelLabel(channel) {
+        if (!channel) return "CH --"
+        return "CH " + (channel.number || "--")
+    }
+
+    function appendTvScheduleItem(schedule, source, kind, startAt) {
+        if (!source || !source.url)
+            return startAt
+
+        var fallback = kind === "commercial" ? 30 : 300
+        var duration = durationSeconds(source, fallback)
+        var item = Object.assign({}, source)
+        item.kind = kind
+        item.duration = duration
+        item.start = startAt
+        item.end = startAt + duration
+        schedule.push(item)
+        return item.end
+    }
+
+    function randomCommercial() {
+        if (tvCommercialPool.length === 0)
+            return null
+        return tvCommercialPool[Math.floor(Math.random() * tvCommercialPool.length)]
+    }
+
+    function buildTvSchedule(videos) {
+        var schedule = []
+        var total = 0
+        var shuffled = shuffleList(videos || [])
+        var includeCommercials = tvCommercialsEnabled() && tvCommercialPool.length > 0
+
+        for (var i = 0; i < shuffled.length; i++) {
+            total = appendTvScheduleItem(schedule, shuffled[i], "program", total)
+            if (includeCommercials) {
+                var count = 1 + Math.floor(Math.random() * 3)
+                for (var j = 0; j < count; j++) {
+                    var commercial = randomCommercial()
+                    if (commercial)
+                        total = appendTvScheduleItem(schedule, commercial, "commercial", total)
+                }
+            }
+        }
+        return { schedule: schedule, totalDuration: total }
+    }
+
+    function findTvScheduleItem(channel) {
+        if (!channel || !channel.schedule || channel.schedule.length === 0 || channel.totalDuration <= 0)
+            return null
+
+        var elapsed = Math.max(0, (Date.now() - tvStartedAtMs) / 1000.0)
+        var position = elapsed % channel.totalDuration
+        for (var i = 0; i < channel.schedule.length; i++) {
+            var item = channel.schedule[i]
+            if (position >= item.start && position < item.end)
+                return { item: item, index: i, offset: Math.max(0, position - item.start) }
+        }
+
+        return { item: channel.schedule[0], index: 0, offset: 0 }
+    }
+
+    function showTvStaticForChannel(channel) {
+        tvTuningStaticVisible = true
+        tvStreamStarted = false
+        cancelTvResolve()
+        statusText = tvChannelLabel(channel)
+        if (mpvController.running) {
+            tvStoppingForTune = true
+            mpvController.stop()
+        }
+    }
+
+    function cancelTvResolve() {
+        tvPendingResolveId = ""
+        tvPendingPlayback = ({})
+        if (youtubePlaylistBackend.cancel_video_stream_resolve)
+            youtubePlaylistBackend.cancel_video_stream_resolve()
+    }
+
+    function launchTvPlayback(url, offset, label, allowYtdl, format) {
+        tvStreamStarted = true
+        tvStoppingForTune = false
+        mpvController.loadAndPlay(url || "", offset || 0.0, 0, -1, [],
+                                  false, -1, 0.0, "", false, "ota", false,
+                                  label, false, !!allowYtdl, format || "")
+    }
+
+    function requestTvStream() {
+        tvTuneTimer.stop()
+        if (!tvModeActive || tvLoading || tvChannels.length === 0)
+            return
+
+        cancelTvResolve()
+        var channel = tvChannels[tvCurrentChannelIndex]
+        var resolved = findTvScheduleItem(channel)
+        if (!resolved || !resolved.item || !resolved.item.url) {
+            tvTuningStaticVisible = true
+            tvStreamStarted = false
+            statusText = tvChannelLabel(channel)
+            return
+        }
+
+        var label = tvChannelLabel(channel)
+        statusText = label
+        tvStoppingForTune = false
+        tvCurrentScheduleIndex = resolved.index
+        var format = youtubePlaylistBackend.ytdl_format_for_quality(playbackQuality())
+        var requestId = "tv-" + (++tvResolveSerial)
+        tvPendingResolveId = requestId
+        tvPendingPlayback = {
+            url: resolved.item.url || "",
+            offset: resolved.offset || 0.0,
+            label: label,
+            format: format
+        }
+        statusText = label
+        youtubePlaylistBackend.resolve_video_stream(requestId, resolved.item.url || "", playbackQuality())
+    }
+
+    function handleTvStreamResolved(requestId, result) {
+        if (!tvModeActive || requestId !== tvPendingResolveId)
+            return
+
+        var pending = tvPendingPlayback || ({})
+        tvPendingResolveId = ""
+        tvPendingPlayback = ({})
+        var directUrl = result && result.ok === true ? (result.url || "") : ""
+        if (directUrl !== "") {
+            launchTvPlayback(directUrl, pending.offset || 0.0, pending.label || statusText, false, "")
+            return
+        }
+
+        launchTvPlayback(pending.url || "", pending.offset || 0.0,
+                         pending.label || statusText, true, pending.format || "")
+    }
+
+    function playNextTvScheduleItem() {
+        if (!tvModeActive || tvChannels.length === 0)
+            return
+        var channel = tvChannels[tvCurrentChannelIndex]
+        if (!channel || !channel.schedule || channel.schedule.length === 0) {
+            requestTvStream()
+            return
+        }
+        var nextIndex = tvCurrentScheduleIndex + 1
+        if (nextIndex < 0 || nextIndex >= channel.schedule.length)
+            nextIndex = 0
+        var nextItem = channel.schedule[nextIndex]
+        tvStartedAtMs = Date.now() - Math.max(0, nextItem.start) * 1000.0
+        requestTvStream()
+    }
+
+    function tuneTvIndex(index, immediate) {
+        if (!tvModeActive || tvChannels.length === 0)
+            return
+        if (index < 0)
+            index = tvChannels.length - 1
+        if (index >= tvChannels.length)
+            index = 0
+        if (tvCurrentChannelIndex !== index)
+            tvPreviousChannelIndex = tvCurrentChannelIndex
+        tvCurrentChannelIndex = index
+        tvCurrentScheduleIndex = -1
+
+        showTvStaticForChannel(tvChannels[tvCurrentChannelIndex])
+        if (immediate)
+            requestTvStream()
+        else
+            tvTuneTimer.restart()
+    }
+
+    function tuneTvRelative(delta, immediate) {
+        tuneTvIndex(tvCurrentChannelIndex + delta, immediate)
+    }
+
+    function tuneTvNow() {
+        if (!tvModeActive || tvLoading)
+            return
+        requestTvStream()
+    }
+
+    function tuneLastTvChannel() {
+        if (tvPreviousChannelIndex < 0 || tvPreviousChannelIndex >= tvChannels.length)
+            return
+        tuneTvIndex(tvPreviousChannelIndex, false)
+    }
+
+    function loadNextTvPlaylist() {
+        if (!tvModeActive || !tvLoading)
+            return
+        if (tvLoadQueue.length === 0) {
+            finalizeTvMode()
+            return
+        }
+
+        var queue = tvLoadQueue.slice()
+        tvCurrentLoad = queue.shift() || ({})
+        tvLoadQueue = queue
+        var playlist = tvCurrentLoad.playlist || ({})
+        statusText = "LOADING " + (playlist.title || "PLAYLIST")
+        loadingPlaylist = true
+        youtubePlaylistBackend.load_playlist(playlist.input || playlist.url || "")
+    }
+
+    function handleTvPlaylistLoaded(title, items) {
+        loadingPlaylist = false
+        var load = tvCurrentLoad || ({})
+        var playlistItems = items || []
+        if (load.kind === "channel") {
+            var channel = tvPendingChannels[load.index] || ({})
+            channel.title = title || channel.title
+            channel.videos = playlistItems
+            tvPendingChannels[load.index] = channel
+        } else if (load.kind === "commercial") {
+            for (var i = 0; i < playlistItems.length; i++) {
+                var commercial = Object.assign({}, playlistItems[i])
+                commercial.commercial = true
+                tvPendingCommercials.push(commercial)
+            }
+        }
+        tvCurrentLoad = ({})
+        loadNextTvPlaylist()
+    }
+
+    function handleTvPlaylistError(message) {
+        loadingPlaylist = false
+        tvCurrentLoad = ({})
+        loadNextTvPlaylist()
+    }
+
+    function finalizeTvMode() {
+        var commercials = []
+        for (var i = 0; i < tvPendingCommercials.length; i++) {
+            if (tvPendingCommercials[i] && tvPendingCommercials[i].url)
+                commercials.push(tvPendingCommercials[i])
+        }
+        tvCommercialPool = commercials
+
+        var readyChannels = []
+        for (var j = 0; j < tvPendingChannels.length; j++) {
+            var channel = tvPendingChannels[j] || ({})
+            if (!channel.videos || channel.videos.length === 0)
+                continue
+            var scheduleData = buildTvSchedule(channel.videos)
+            if (scheduleData.schedule.length === 0 || scheduleData.totalDuration <= 0)
+                continue
+            channel.schedule = scheduleData.schedule
+            channel.totalDuration = scheduleData.totalDuration
+            readyChannels.push(channel)
+        }
+
+        if (readyChannels.length === 0) {
+            tvModeActive = false
+            tvLoading = false
+            tvTuningStaticVisible = false
+            mode = "message"
+            statusText = "TV MODE HAS NO VIDEOS"
+            return
+        }
+
+        tvChannels = readyChannels
+        tvCurrentChannelIndex = 0
+        tvCurrentScheduleIndex = -1
+        tvPreviousChannelIndex = -1
+        tvStartedAtMs = Date.now()
+        tvLoading = false
+        tuneTvIndex(0, false)
+    }
+
+    function startTvMode() {
+        if (playlists.length === 0) {
+            mode = "message"
+            statusText = "ADD PLAYLISTS FIRST"
+            return
+        }
+
+        tvTuneTimer.stop()
+        addLookupTimer.stop()
+        tvModeActive = true
+        tvLoading = true
+        tvTuningStaticVisible = true
+        tvStoppingForTune = false
+        tvStreamStarted = false
+        tvCurrentChannelIndex = 0
+        tvCurrentScheduleIndex = -1
+        tvPreviousChannelIndex = -1
+        tvStartedAtMs = Date.now()
+        tvChannels = []
+        tvCommercialPool = []
+        tvPendingChannels = []
+        tvPendingCommercials = []
+        tvCurrentLoad = ({})
+        tvLoadQueue = []
+        statusText = "LOADING TV MODE"
+        mode = "tv"
+
+        if (mpvController.running) {
+            tvStoppingForTune = true
+            mpvController.stop()
+        }
+
+        var shuffledChannels = shuffleList(playlists)
+        var queue = []
+        for (var i = 0; i < shuffledChannels.length; i++) {
+            var source = shuffledChannels[i] || ({})
+            var channel = {
+                number: padChannelNumber(i + 2),
+                title: source.title || ("CHANNEL " + padChannelNumber(i + 2)),
+                input: source.input || source.url || "",
+                url: source.url || "",
+                videos: [],
+                schedule: [],
+                totalDuration: 0
+            }
+            tvPendingChannels.push(channel)
+            queue.push({ kind: "channel", index: i, playlist: channel })
+        }
+
+        if (tvCommercialsEnabled()) {
+            for (var j = 0; j < commercialPlaylists.length; j++) {
+                var commercial = commercialPlaylists[j] || ({})
+                queue.push({ kind: "commercial", playlist: commercial })
+            }
+        }
+
+        tvLoadQueue = queue
+        loadNextTvPlaylist()
+    }
+
+    function exitTvMode() {
+        tvTuneTimer.stop()
+        cancelTvResolve()
+        tvModeActive = false
+        tvLoading = false
+        tvTuningStaticVisible = false
+        tvStreamStarted = false
+        tvCurrentScheduleIndex = -1
+        if (mpvController.running)
+            mpvController.stop()
+        loadPlaylistLibrary(currentPlaylistIndex)
     }
 
     function videoIndexForItem(item, fallback) {
@@ -362,6 +852,46 @@ FocusScope {
             return
         }
 
+        if (mode === "store") {
+            if (event.key === Qt.Key_Up) {
+                storeList.currentIndex = Math.max(0, storeList.currentIndex - 1)
+                event.accepted = true
+            } else if (event.key === Qt.Key_Down) {
+                storeList.currentIndex = Math.min(storeList.count - 1, storeList.currentIndex + 1)
+                event.accepted = true
+            } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
+                selectStorePlaylist(storeList.currentIndex)
+                event.accepted = true
+            } else if (event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace || event.key === Qt.Key_Back) {
+                loadPlaylistLibrary(currentPlaylistIndex)
+                event.accepted = true
+            }
+            return
+        }
+
+        if (mode === "tv") {
+            if (event.key === Qt.Key_Up) {
+                tuneTvRelative(1, false)
+                event.accepted = true
+            } else if (event.key === Qt.Key_Down) {
+                tuneTvRelative(-1, false)
+                event.accepted = true
+            } else if (event.key === Qt.Key_Left) {
+                tuneLastTvChannel()
+                event.accepted = true
+            } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
+                tuneTvNow()
+                event.accepted = true
+            } else if (event.key === Qt.Key_Menu) {
+                mpvController.sendKey("MENU")
+                event.accepted = true
+            } else if (event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace || event.key === Qt.Key_Back) {
+                exitTvMode()
+                event.accepted = true
+            }
+            return
+        }
+
         if (mode === "list") {
             if (event.key === Qt.Key_Up) {
                 setVideoRowIndex(videoList.currentIndex - 1)
@@ -448,10 +978,22 @@ FocusScope {
         onTriggered: mixRoot.finishAddPlaylist(mixRoot.pendingPlaylistInput)
     }
 
+    Timer {
+        id: tvTuneTimer
+        interval: mixRoot.tvTuneDelayMs
+        repeat: false
+        onTriggered: mixRoot.requestTvStream()
+    }
+
     Connections {
         target: youtubePlaylistBackend
 
         function onPlaylistLoaded(title, items) {
+            if (tvModeActive && tvLoading) {
+                handleTvPlaylistLoaded(title, items || [])
+                return
+            }
+
             loadingPlaylist = false
             playlistTitle = title || playlistTitle || "YOUTUBE PLAYLIST"
             updateCurrentPlaylistTitle(playlistTitle)
@@ -468,9 +1010,18 @@ FocusScope {
         }
 
         function onErrorOccurred(message) {
+            if (tvModeActive && tvLoading) {
+                handleTvPlaylistError(message)
+                return
+            }
+
             loadingPlaylist = false
             mode = "message"
             statusText = message || "YOUTUBE PLAYLIST FAILED"
+        }
+
+        function onVideoStreamResolved(requestId, result) {
+            handleTvStreamResolved(requestId, result)
         }
     }
 
@@ -478,6 +1029,10 @@ FocusScope {
         target: mpvController
 
         function onPlaybackFinishedNaturally(finalPositionMs, finalDurationMs) {
+            if (tvModeActive) {
+                playNextTvScheduleItem()
+                return
+            }
             if (mode !== "playing") return
             if (autoplayNext() && playbackVideoIndex + 1 < playbackVideos.length) {
                 playPlaybackVideoIndex(playbackVideoIndex + 1)
@@ -487,6 +1042,14 @@ FocusScope {
         }
 
         function onPlaybackFinished(finalPositionMs, finalDurationMs) {
+            if (tvModeActive) {
+                if (tvStoppingForTune) {
+                    tvStoppingForTune = false
+                    return
+                }
+                exitTvMode()
+                return
+            }
             if (stoppingPlayback) {
                 stoppingPlayback = false
                 return
@@ -496,27 +1059,66 @@ FocusScope {
         }
 
         function onPlaybackFailed() {
+            if (tvModeActive) {
+                if (tvStoppingForTune) {
+                    tvStoppingForTune = false
+                    return
+                }
+                tvTuningStaticVisible = true
+                tvStreamStarted = false
+                statusText = tvChannels.length > 0 ? tvChannelLabel(tvChannels[tvCurrentChannelIndex]) : "TV MODE"
+                tvTuneTimer.restart()
+                return
+            }
             mode = "message"
             statusText = "YOUTUBE PLAYBACK FAILED"
+        }
+
+        function onScriptMessageReceived(message, arg) {
+            if (!tvModeActive)
+                return
+            if (message === "240mp-ota-file-loaded") {
+                tvTuningStaticVisible = false
+                tvStreamStarted = true
+                return
+            }
+            if (message === "240mp-ota-tune-now") {
+                tuneTvNow()
+                return
+            }
+            if (message === "240mp-ota-last-channel") {
+                tuneLastTvChannel()
+                return
+            }
+            if (message !== "240mp-ota-channel-step")
+                return
+
+            var delta = parseInt(arg)
+            if (isNaN(delta) || delta === 0)
+                return
+            tuneTvRelative(delta, false)
         }
     }
 
     StaticBackground {
         anchors.fill: parent
-        visible: root.staticBackgroundEnabled && mode !== "playing"
+        visible: mixRoot.backgroundStaticVisible
         running: visible
     }
 
     Rectangle {
         anchors.fill: parent
-        color: root.staticBackgroundEnabled && mode !== "playing" ? "transparent" : root.surfaceColor
+        color: mixRoot.backgroundStaticVisible ? "transparent" : root.surfaceColor
     }
 
     AppBar {
+        visible: mode !== "tv"
         iconSource: moduleIcon
         iconHeight: root.sh * 0.075
         title: moduleName
-        subtitle: mode === "list" ? playlistTitle : (mode === "library" ? "PLAYLISTS" : "PUBLIC")
+        subtitle: mode === "list" ? playlistTitle
+                  : (mode === "library" ? "PLAYLISTS"
+                     : (mode === "store" ? "STORE" : "PUBLIC"))
         anchors.top: parent.top
         anchors.left: parent.left
         anchors.topMargin: root.sh * 0.125
@@ -524,7 +1126,7 @@ FocusScope {
     }
 
     Text {
-        visible: mode === "loading" || mode === "message" || mode === "playing"
+        visible: mode === "loading" || mode === "message" || mode === "playing" || (mode === "tv" && tvLoading)
         text: mode === "playing" ? statusText : statusText
         color: root.primaryColor
         font.family: root.globalFont
@@ -534,6 +1136,30 @@ FocusScope {
         width: root.sw * 0.78
         wrapMode: Text.WordWrap
         font.pixelSize: root.sh * 0.045
+    }
+
+    Rectangle {
+        visible: mode === "tv" && tvTuningStaticVisible && !tvLoading
+        z: 5
+        anchors.top: parent.top
+        anchors.right: parent.right
+        anchors.topMargin: root.sh * 0.09
+        anchors.rightMargin: root.sw * 0.07
+        width: Math.max(tvChannelText.implicitWidth + root.sw * 0.04, root.sw * 0.18)
+        height: root.sh * 0.085
+        color: "#60000000"
+        border.color: root.primaryColor
+        border.width: Math.max(1, root.sh * 0.004)
+
+        Text {
+            id: tvChannelText
+            anchors.centerIn: parent
+            text: statusText
+            color: root.primaryColor
+            font.family: root.globalFont
+            font.capitalization: Font.AllUppercase
+            font.pixelSize: root.sh * 0.055
+        }
     }
 
     Column {
@@ -625,6 +1251,45 @@ FocusScope {
                 id: playlistText
                 text: modelData.title || "PLAYLIST"
                 color: libraryList.currentIndex === index ? root.surfaceColor : root.primaryColor
+                font.family: root.globalFont
+                font.capitalization: Font.AllUppercase
+                anchors.verticalCenter: parent.verticalCenter
+                width: parent.width
+                elide: Text.ElideRight
+                leftPadding: root.sw * 0.009375
+                rightPadding: root.sw * 0.009375
+                font.pixelSize: root.sh * 0.05
+            }
+        }
+    }
+
+    ListView {
+        id: storeList
+        visible: mode === "store"
+        model: storePlaylists
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.topMargin: root.sh * 0.25
+        anchors.leftMargin: root.sw * 0.115625
+        width: root.sw * 0.76875
+        height: root.sh * 0.525
+        clip: true
+        focus: visible
+
+        delegate: Item {
+            width: storeList.width
+            height: root.sh * 0.0583333
+
+            Rectangle {
+                anchors.fill: storeText
+                color: root.accentColor
+                visible: storeList.currentIndex === index
+            }
+
+            Text {
+                id: storeText
+                text: modelData.title || "PLAYLIST"
+                color: storeList.currentIndex === index ? root.surfaceColor : root.primaryColor
                 font.family: root.globalFont
                 font.capitalization: Font.AllUppercase
                 anchors.verticalCenter: parent.verticalCenter

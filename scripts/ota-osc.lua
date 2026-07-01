@@ -207,6 +207,10 @@ mp.register_event("file-loaded", function()
     end
 end)
 
+mp.register_event("playback-restart", function()
+    mp.commandv("script-message", "240mp-ota-file-loaded")
+end)
+
 local function tune_relative(delta)
     mp.commandv("script-message", "240mp-ota-channel-step", tostring(delta))
 end

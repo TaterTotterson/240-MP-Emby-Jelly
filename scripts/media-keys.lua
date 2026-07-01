@@ -15,6 +15,7 @@ local VOLUME_STEP    = 5     -- percentage points per Volume +/- press
 local SEEK_FORWARD   = 30    -- Fast Forward jump, seconds
 local SEEK_BACK      = 10    -- Rewind jump, seconds
 local BAR_TIMEOUT    = 1.5   -- seconds the volume bar stays on screen
+local VOLUME_STATE_PATH = "/tmp/240mp-volume-state"
 local INPUT_LABEL    = (mp.get_opt("vcr-input") or ""):upper()
 local IS_OTA         = INPUT_LABEL == "AIR"
 
@@ -24,6 +25,8 @@ local A_DIM     = "&HB0&"   -- ~30% opacity for the unfilled "dash" ticks
 
 local bar_overlay = mp.create_osd_overlay("ass-events")
 local bar_timer   = nil
+local saving_volume = false
+local volume_state_ready = false
 
 local function hide_bar()
     if bar_timer then bar_timer:kill(); bar_timer = nil end
@@ -33,6 +36,40 @@ end
 -- The navigation menu (mpv-osc.lua) broadcasts this when it opens; the volume
 -- bar and the menu share the same spot, so we stand down.
 mp.register_script_message("240mp-osd-volume-hide", hide_bar)
+
+local function read_volume_state()
+    local file = io.open(VOLUME_STATE_PATH, "r")
+    if not file then return nil end
+    local value = tonumber((file:read("*a") or ""):match("^%s*(.-)%s*$"))
+    file:close()
+    if not value then return nil end
+    if value < 0 then value = 0 end
+    if value > 200 then value = 200 end
+    return value
+end
+
+local function save_volume_state()
+    if saving_volume then return end
+    local volume = mp.get_property_number("volume", nil)
+    if not volume then return end
+
+    saving_volume = true
+    local file = io.open(VOLUME_STATE_PATH, "w")
+    if file then
+        file:write(string.format("%.3f\n", volume))
+        file:close()
+    end
+    saving_volume = false
+end
+
+local function restore_volume_state()
+    if volume_state_ready then return end
+    local volume = read_volume_state()
+    if volume then
+        mp.set_property_number("volume", volume)
+    end
+    volume_state_ready = true
+end
 
 -- Draw a filled rectangle (no border) at an absolute position.
 local function draw_rect(ass, x, y, w, h, colour, alpha)
@@ -112,6 +149,7 @@ end
 
 local function change_volume(delta)
     mp.command("no-osd add volume " .. delta)
+    save_volume_state()
     show_volume_bar()
 end
 
@@ -127,7 +165,16 @@ end
 
 mp.add_forced_key_binding("VOLUME_UP",   "mk-vol-up",   function() change_volume(VOLUME_STEP)  end, {repeatable = true})
 mp.add_forced_key_binding("VOLUME_DOWN", "mk-vol-down", function() change_volume(-VOLUME_STEP) end, {repeatable = true})
-mp.add_forced_key_binding("MUTE",        "mk-mute",     function() mp.command("no-osd cycle mute"); show_volume_bar() end)
+mp.add_forced_key_binding("MUTE",        "mk-mute",     function() mp.command("no-osd cycle mute"); save_volume_state(); show_volume_bar() end)
+
+mp.register_event("start-file", restore_volume_state)
+mp.register_event("file-loaded", restore_volume_state)
+
+mp.observe_property("volume", "number", function(_, value)
+    if value ~= nil and volume_state_ready then
+        save_volume_state()
+    end
+end)
 
 mp.add_forced_key_binding("PLAYPAUSE", "mk-playpause", function() mp.command("cycle pause") end)
 mp.add_forced_key_binding("STOP",      "mk-stop",      function() mp.command("quit") end)

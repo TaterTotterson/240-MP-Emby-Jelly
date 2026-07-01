@@ -14,6 +14,7 @@
 #include <QSaveFile>
 #include <QSet>
 #include <QStandardPaths>
+#include <QTimer>
 #include <QUrl>
 #include <QUrlQuery>
 #include <QVariantMap>
@@ -21,7 +22,7 @@
 namespace {
 constexpr const char *kModuleId = "com.240mp.youtube_playlist";
 constexpr const char *kLegacyPlaylistCacheFile = "public-access-cache.json";
-constexpr int kPlaylistCacheVersion = 2;
+constexpr int kPlaylistCacheVersion = 3;
 constexpr int kPlaylistLimit = 500;
 
 QStringList executableSearchPaths()
@@ -71,6 +72,67 @@ QString fallbackPlaylistTitle(const QString &input, int index)
             return QStringLiteral("PLAYLIST %1").arg(tail.left(8).toUpper());
     }
     return QStringLiteral("PLAYLIST %1").arg(index + 1);
+}
+
+QString textFromYouTubeText(const QJsonValue &value);
+
+double durationFromText(const QString &raw)
+{
+    const QString value = raw.trimmed();
+    if (value.isEmpty())
+        return 0.0;
+
+    const QStringList parts = value.split(QLatin1Char(':'), Qt::SkipEmptyParts);
+    if (parts.isEmpty() || parts.size() > 3)
+        return 0.0;
+
+    double seconds = 0.0;
+    for (const QString &part : parts) {
+        bool ok = false;
+        const double number = part.toDouble(&ok);
+        if (!ok)
+            return 0.0;
+        seconds = seconds * 60.0 + number;
+    }
+    return seconds > 0.0 ? seconds : 0.0;
+}
+
+double durationFromJsonValue(const QJsonValue &value)
+{
+    if (value.isDouble()) {
+        const double duration = value.toDouble();
+        return duration > 0.0 ? duration : 0.0;
+    }
+    if (value.isString()) {
+        bool ok = false;
+        const double duration = value.toString().toDouble(&ok);
+        if (ok && duration > 0.0)
+            return duration;
+        return durationFromText(value.toString());
+    }
+    return 0.0;
+}
+
+double durationFromRenderer(const QJsonObject &renderer)
+{
+    const double direct = durationFromJsonValue(renderer.value(QStringLiteral("duration")));
+    if (direct > 0.0)
+        return direct;
+
+    const double lengthText = durationFromText(
+        textFromYouTubeText(renderer.value(QStringLiteral("lengthText"))));
+    if (lengthText > 0.0)
+        return lengthText;
+
+    const double thumbnailOverlay = durationFromText(
+        textFromYouTubeText(renderer.value(QStringLiteral("thumbnailOverlays"))
+                                .toArray()
+                                .first()
+                                .toObject()
+                                .value(QStringLiteral("thumbnailOverlayTimeStatusRenderer"))
+                                .toObject()
+                                .value(QStringLiteral("text"))));
+    return thumbnailOverlay > 0.0 ? thumbnailOverlay : 0.0;
 }
 
 QString decodeJsonString(const QString &value)
@@ -277,6 +339,9 @@ void collectRendererVideos(const QJsonValue &value,
             lockup ? textFromLockupTitle(renderer)
                    : textFromYouTubeText(renderer.value(QStringLiteral("title"))),
             QStringLiteral("VIDEO %1").arg(items.size() + 1));
+        const double duration = durationFromRenderer(renderer);
+        if (duration > 0.0)
+            item[QStringLiteral("duration")] = duration;
         item[QStringLiteral("index")] = items.size();
         items.append(item);
         if (items.size() >= limit)
@@ -635,6 +700,147 @@ QString YouTubePlaylistBackend::ytdl_format_for_quality(const QString &quality) 
     return QStringLiteral("best[height<=360][ext=mp4]/bestvideo[height<=360][vcodec^=avc1]+bestaudio[acodec^=mp4a]/best[height<=360]/best");
 }
 
+QString YouTubePlaylistBackend::directStreamFormatForQuality(const QString &quality) const
+{
+    const QString q = quality.trimmed().toLower();
+    if (runningOnRaspberryPi3() && q == QLatin1String("best"))
+        return QStringLiteral("best[height<=480][ext=mp4]/best[height<=480]/best");
+    if (q == QLatin1String("best"))
+        return QStringLiteral("best[ext=mp4]/best");
+    if (q == QLatin1String("480p"))
+        return QStringLiteral("best[height<=480][ext=mp4]/best[height<=480]/best");
+    return QStringLiteral("best[height<=360][ext=mp4]/best[height<=360]/best");
+}
+
+void YouTubePlaylistBackend::cancel_video_stream_resolve()
+{
+    if (!m_streamResolver)
+        return;
+
+    QProcess *process = m_streamResolver;
+    m_streamResolver = nullptr;
+    m_streamResolveRequestId.clear();
+    process->disconnect(this);
+    if (process->state() != QProcess::NotRunning) {
+        process->kill();
+        process->waitForFinished(1000);
+    }
+    process->deleteLater();
+}
+
+void YouTubePlaylistBackend::resolve_video_stream(const QString &requestId,
+                                                  const QString &url,
+                                                  const QString &quality)
+{
+    cancel_video_stream_resolve();
+
+    QVariantMap failure;
+    failure[QStringLiteral("ok")] = false;
+
+    const QString trimmedUrl = url.trimmed();
+    if (requestId.trimmed().isEmpty() || trimmedUrl.isEmpty()) {
+        failure[QStringLiteral("message")] = QStringLiteral("NO VIDEO URL");
+        emit videoStreamResolved(requestId, failure);
+        return;
+    }
+
+    const QString bin = ytDlpPath();
+    if (bin.isEmpty()) {
+        failure[QStringLiteral("message")] = QStringLiteral("YT-DLP IS NOT INSTALLED");
+        emit videoStreamResolved(requestId, failure);
+        return;
+    }
+
+    QStringList args{
+        QStringLiteral("--no-warnings"),
+        QStringLiteral("--no-playlist"),
+        QStringLiteral("--format"),
+        directStreamFormatForQuality(quality),
+        QStringLiteral("--get-url"),
+        trimmedUrl
+    };
+
+    QProcess *process = new QProcess(this);
+    process->setProcessChannelMode(QProcess::SeparateChannels);
+    m_streamResolver = process;
+    m_streamResolveRequestId = requestId;
+
+    connect(process,
+            QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            this,
+            [this, process, requestId, trimmedUrl](int exitCode, QProcess::ExitStatus exitStatus) {
+        if (process != m_streamResolver) {
+            process->deleteLater();
+            return;
+        }
+
+        const QString stdoutText = QString::fromUtf8(process->readAllStandardOutput()).trimmed();
+        const QString stderrText = QString::fromUtf8(process->readAllStandardError()).trimmed();
+        m_streamResolver = nullptr;
+        m_streamResolveRequestId.clear();
+        process->deleteLater();
+
+        QVariantMap result;
+        result[QStringLiteral("ok")] = false;
+        result[QStringLiteral("sourceUrl")] = trimmedUrl;
+
+        if (exitStatus != QProcess::NormalExit || exitCode != 0) {
+            result[QStringLiteral("message")] = stderrText.isEmpty()
+                ? QStringLiteral("YOUTUBE STREAM RESOLVE FAILED")
+                : stderrText.toUpper().left(160);
+            emit videoStreamResolved(requestId, result);
+            return;
+        }
+
+        QStringList urls;
+        const QStringList lines = stdoutText.split(QRegularExpression(QStringLiteral("[\\r\\n]+")),
+                                                   Qt::SkipEmptyParts);
+        for (const QString &line : lines) {
+            const QString candidate = line.trimmed();
+            if (candidate.startsWith(QStringLiteral("http://"), Qt::CaseInsensitive) ||
+                candidate.startsWith(QStringLiteral("https://"), Qt::CaseInsensitive)) {
+                urls.append(candidate);
+            }
+        }
+
+        if (urls.size() != 1) {
+            result[QStringLiteral("message")] = urls.isEmpty()
+                ? QStringLiteral("YOUTUBE STREAM URL NOT FOUND")
+                : QStringLiteral("YOUTUBE STREAM IS SPLIT");
+            emit videoStreamResolved(requestId, result);
+            return;
+        }
+
+        result[QStringLiteral("ok")] = true;
+        result[QStringLiteral("url")] = urls.first();
+        result[QStringLiteral("message")] = QString();
+        emit videoStreamResolved(requestId, result);
+    });
+
+    QTimer::singleShot(30000, process, [this, process, requestId, trimmedUrl]() {
+        if (process != m_streamResolver || process->state() == QProcess::NotRunning)
+            return;
+
+        process->kill();
+        QVariantMap result;
+        result[QStringLiteral("ok")] = false;
+        result[QStringLiteral("sourceUrl")] = trimmedUrl;
+        result[QStringLiteral("message")] = QStringLiteral("YOUTUBE STREAM RESOLVE TIMED OUT");
+        m_streamResolver = nullptr;
+        m_streamResolveRequestId.clear();
+        emit videoStreamResolved(requestId, result);
+    });
+
+    process->start(bin, args);
+    if (!process->waitForStarted(2000)) {
+        m_streamResolver = nullptr;
+        m_streamResolveRequestId.clear();
+        process->deleteLater();
+        failure[QStringLiteral("message")] = QStringLiteral("COULD NOT START YT-DLP");
+        emit videoStreamResolved(requestId, failure);
+    }
+}
+
 QVariantMap YouTubePlaylistBackend::inspectPlaylist(const QString &playlistUrl, int limit,
                                                     QString *errorOut) const
 {
@@ -931,6 +1137,11 @@ void YouTubePlaylistBackend::fetchPlaylist(const QString &input, bool forceRefre
             item["url"] = url;
             item["title"] = cleanTitle(entry.value(QStringLiteral("title")).toString(),
                                        QStringLiteral("VIDEO %1").arg(position + 1));
+            double duration = durationFromJsonValue(entry.value(QStringLiteral("duration")));
+            if (duration <= 0.0)
+                duration = durationFromJsonValue(entry.value(QStringLiteral("duration_string")));
+            if (duration > 0.0)
+                item["duration"] = duration;
             item["index"] = position;
             items.append(item);
             ++position;

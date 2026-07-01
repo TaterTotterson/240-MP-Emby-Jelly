@@ -61,6 +61,34 @@ static QProcessEnvironment mpvProcessEnvironment(const QString &appRoot)
     return env;
 }
 
+static QString mpvVolumeStatePath()
+{
+    return QStringLiteral("/tmp/240mp-volume-state");
+}
+
+static bool readSavedMpvVolume(double *volumeOut)
+{
+    if (!volumeOut)
+        return false;
+
+    QFile f(mpvVolumeStatePath());
+    if (!f.open(QFile::ReadOnly | QFile::Text))
+        return false;
+
+    bool ok = false;
+    double volume = QString::fromUtf8(f.readAll()).trimmed().toDouble(&ok);
+    if (!ok)
+        return false;
+
+    if (volume < 0.0)
+        volume = 0.0;
+    if (volume > 200.0)
+        volume = 200.0;
+
+    *volumeOut = volume;
+    return true;
+}
+
 MpvController::MpvController(const QString &appRoot, AppCore *appCore, QObject *parent)
     : QObject(parent)
     , m_appCore(appCore)
@@ -219,6 +247,10 @@ void MpvController::loadAndPlay(const QString &url, float startSeconds,
          << QString("--log-file=%1").arg(m_logFilePath)
          << (hasOscScript ? "--osc=no" : "--osc=yes")
          << "--osd-level=0";
+
+    double savedVolume = 0.0;
+    if (readSavedMpvVolume(&savedVolume))
+        args << QString("--volume=%1").arg(savedVolume, 0, 'f', 3);
 
     if (hasOscScript)
         args << QString("--script=%1").arg(oscScript);

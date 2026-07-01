@@ -7,6 +7,8 @@
 #include <QVariantMap>
 #include <QString>
 
+class QProcess;
+
 class YouTubePlaylistBackend : public QObject {
     Q_OBJECT
 
@@ -20,6 +22,9 @@ public:
     Q_INVOKABLE QString normalize_playlist_input(const QString &input) const;
     Q_INVOKABLE QVariantMap resolve_playlist_info(const QString &input) const;
     Q_INVOKABLE QString ytdl_format_for_quality(const QString &quality) const;
+    Q_INVOKABLE void resolve_video_stream(const QString &requestId, const QString &url,
+                                          const QString &quality);
+    Q_INVOKABLE void cancel_video_stream_resolve();
     Q_INVOKABLE void load_playlist(const QString &input);
     Q_INVOKABLE void refresh_playlist_cache();
     Q_INVOKABLE void refresh_playlist(const QString &input);
@@ -33,6 +38,7 @@ signals:
     void errorOccurred(const QString &message);
     void authStateChanged();
     void dynamicOptionsReady(const QString &key, const QVariant &options);
+    void videoStreamResolved(const QString &requestId, const QVariantMap &result);
 
 public slots:
     void onSettingChanged(const QString &moduleId, const QString &key, const QVariant &value);
@@ -52,7 +58,10 @@ private:
     void clearPlaylistCache(const QString &playlistUrl) const;
     void fetchPlaylist(const QString &input, bool forceRefresh);
     QVariantMap inspectPlaylist(const QString &playlistUrl, int limit, QString *errorOut) const;
+    QString directStreamFormatForQuality(const QString &quality) const;
 
     QString m_appRoot;
     QString m_dataRoot;
+    QProcess *m_streamResolver = nullptr;
+    QString m_streamResolveRequestId;
 };
