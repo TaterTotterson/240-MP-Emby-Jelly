@@ -59,6 +59,10 @@ target_include_directories(240mp PRIVATE
     src
 )
 
+target_compile_definitions(240mp PRIVATE
+    CRT_STATION_VERSION="${PROJECT_VERSION}"
+)
+
 # ── macOS bundle metadata ──────────────────────────────────────────────────────
 set_target_properties(240mp PROPERTIES
     MACOSX_BUNDLE TRUE

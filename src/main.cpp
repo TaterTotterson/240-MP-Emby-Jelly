@@ -24,6 +24,10 @@
 #include "macos_utils.h"
 #endif
 
+#ifndef CRT_STATION_VERSION
+#define CRT_STATION_VERSION "0.0.0"
+#endif
+
 static QString resolveAppRoot() {
     QString envRoot = qEnvironmentVariable("APP_ROOT");
     if (!envRoot.isEmpty())
@@ -59,7 +63,7 @@ static QString resolveDataRoot() {
 int main(int argc, char *argv[]) {
     QGuiApplication app(argc, argv);
     app.setApplicationName("CRT Station");
-    app.setApplicationVersion("1.1.3");
+    app.setApplicationVersion(QStringLiteral(CRT_STATION_VERSION));
 
     // Hide cursor — CRT Station is keyboard-only so the cursor serves no purpose.
     // On Linux, only hide on headless EGLFS (not desktop X11/Wayland sessions).
